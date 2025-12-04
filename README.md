@@ -68,7 +68,7 @@ zig build bench -Doptimize=ReleaseFast
 
 ### Prerequisites
 *   **Zig 0.15.2** (for building the core)
-*   Your language of choice (C, C++, Python, Node, Bun)
+*   Your language of choice (C, C++, Python, Node, Bun, Go)
 
 ### Build & Test
 ```bash
@@ -81,10 +81,11 @@ zig build bench -- -Doptimize=ReleaseFast
 
 ### Build Core & Bindings
 ```bash
-# Build everything (Core, C/C++ libs, Python bindings)
+# Build everything (Core, C/C++ libs, Python bindings, Go bindings)
 zig build
 zig build c-bindings
 zig build python-bindings
+zig build go-bindings
 ```
 
 ---
@@ -257,6 +258,11 @@ int main() {
 
 ### 🐹 Go
 Idiomatic Go bindings using CGO.
+
+```bash
+# Build bindings
+zig build go-bindings
+```
 
 ```go
 package main
