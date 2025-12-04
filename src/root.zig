@@ -189,6 +189,18 @@ pub const DynamicTimeSeriesDB = struct {
         var write_cursor: u64 = HEADER_SIZE;
         var is_wrapped = false;
 
+        const readAll = struct {
+            fn readAll(f: std.fs.File, dest: []u8) !usize {
+                var index: usize = 0;
+                while (index < dest.len) {
+                    const amt = try f.read(dest[index..]);
+                    if (amt == 0) return index;
+                    index += amt;
+                }
+                return index;
+            }
+        }.readAll;
+
         if (stat.size == 0) {
             // New file: Write Header
             try file.writeAll(&MAGIC);
@@ -199,7 +211,7 @@ pub const DynamicTimeSeriesDB = struct {
 
             try file.seekTo(0);
             var header_buf: [HEADER_SIZE]u8 = undefined;
-            const bytes_read = try file.readAll(&header_buf);
+            const bytes_read = try readAll(file, &header_buf);
             if (bytes_read != HEADER_SIZE) return error.UnexpectedEndOfFile;
 
             if (!std.mem.eql(u8, header_buf[0..4], &MAGIC)) return error.InvalidMagic;
@@ -217,7 +229,7 @@ pub const DynamicTimeSeriesDB = struct {
                     const last_record = try allocator.alloc(u8, record_size);
                     defer allocator.free(last_record);
 
-                    _ = try file.readAll(last_record);
+                    _ = try readAll(file, last_record);
                     last_timestamp = std.mem.bytesToValue(i64, last_record[ts_offset .. ts_offset + 8]);
                 }
                 write_cursor = stat.size;
@@ -520,7 +532,14 @@ pub const DynamicTimeSeriesDB = struct {
 
         // Skip header
         try self.file.seekTo(HEADER_SIZE);
-        const read = try self.file.readAll(result);
+        // We need a readAll helper since fs.File.readAll was removed
+        var index: usize = 0;
+        while (index < result.len) {
+            const amt = try self.file.read(result[index..]);
+            if (amt == 0) break;
+            index += amt;
+        }
+        const read = index;
         if (read != data_size) return error.UnexpectedEndOfFile;
 
         return result;

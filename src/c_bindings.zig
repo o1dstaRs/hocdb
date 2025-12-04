@@ -11,8 +11,10 @@ pub const CField = extern struct {
 };
 
 export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int) ?*anyopaque {
+    std.debug.print("hocdb_init called\n", .{});
     const ticker = std.mem.span(ticker_z);
     const path = std.mem.span(path_z);
+    std.debug.print("ticker: {s}, path: {s}\n", .{ ticker, path });
 
     // Convert C schema to Zig schema
     const fields = std.heap.c_allocator.alloc(hocdb.FieldInfo, schema_len) catch return null;
