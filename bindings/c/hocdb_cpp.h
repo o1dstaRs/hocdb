@@ -186,6 +186,37 @@ public:
     }
 
     /**
+     * @brief Get statistics for a specific field within a time range.
+     * @param start_ts Start timestamp
+     * @param end_ts End timestamp
+     * @param field_index Index of the field to get statistics for
+     * @return HOCDBStats struct containing min, max, sum, count, and avg
+     * @throws std::runtime_error if getting stats fails
+     */
+    HOCDBStats getStats(int64_t start_ts, int64_t end_ts, size_t field_index) {
+        HOCDBStats stats;
+        if (hocdb_get_stats(handle_, start_ts, end_ts, field_index, &stats) != 0) {
+            throw std::runtime_error("getStats failed");
+        }
+        return stats;
+    }
+
+    /**
+     * @brief Get the latest value and timestamp for a specific field.
+     * @param field_index Index of the field to get the latest value for
+     * @return std::pair containing the latest value (double) and its timestamp (int64_t)
+     * @throws std::runtime_error if getting the latest value fails
+     */
+    std::pair<double, int64_t> getLatest(size_t field_index) {
+        double val;
+        int64_t ts;
+        if (hocdb_get_latest(handle_, field_index, &val, &ts) != 0) {
+            throw std::runtime_error("getLatest failed");
+        }
+        return {val, ts};
+    }
+
+    /**
      * @brief Free memory allocated by load()
      * @param ptr Pointer returned by load()
      */

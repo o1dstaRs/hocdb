@@ -157,6 +157,25 @@ class HOCDB:
             ctypes.POINTER(ctypes.c_size_t)  # out_len
         ]
         self.lib.hocdb_query.restype = ctypes.c_void_p
+
+        # hocdb_get_stats function
+        self.lib.hocdb_get_stats.argtypes = [
+            ctypes.c_void_p,          # handle
+            ctypes.c_longlong,        # start_ts
+            ctypes.c_longlong,        # end_ts
+            ctypes.c_size_t,          # field_index
+            ctypes.c_void_p           # out_stats
+        ]
+        self.lib.hocdb_get_stats.restype = ctypes.c_int
+
+        # hocdb_get_latest function
+        self.lib.hocdb_get_latest.argtypes = [
+            ctypes.c_void_p,          # handle
+            ctypes.c_size_t,          # field_index
+            ctypes.POINTER(ctypes.c_double), # out_val
+            ctypes.POINTER(ctypes.c_longlong) # out_ts
+        ]
+        self.lib.hocdb_get_latest.restype = ctypes.c_int
     
     def append(self, record_data: bytes) -> bool:
         """
@@ -247,6 +266,54 @@ class HOCDB:
             # Free the C-allocated memory
             self.lib.hocdb_free(data_ptr)
     
+    def get_stats(self, start_ts: int, end_ts: int, field_index: int) -> dict:
+        """
+        Get statistics for a specific field within a time range.
+        """
+        if not self.handle:
+            raise RuntimeError("Database not initialized")
+        
+        class HOCDBStats(ctypes.Structure):
+            _fields_ = [
+                ("min", ctypes.c_double),
+                ("max", ctypes.c_double),
+                ("sum", ctypes.c_double),
+                ("count", ctypes.c_uint64),
+                ("mean", ctypes.c_double),
+            ]
+
+        stats = HOCDBStats()
+        res = self.lib.hocdb_get_stats(self.handle, start_ts, end_ts, field_index, ctypes.byref(stats))
+        if res != 0:
+            raise RuntimeError("get_stats failed")
+        
+        return {
+            "min": stats.min,
+            "max": stats.max,
+            "sum": stats.sum,
+            "count": stats.count,
+            "mean": stats.mean
+        }
+
+    def get_latest(self, field_index: int) -> dict:
+        """
+        Get the latest value and timestamp for a specific field.
+        """
+        if not self.handle:
+            raise RuntimeError("Database not initialized")
+        
+        val = ctypes.c_double()
+        ts = ctypes.c_longlong()
+        
+        res = self.lib.hocdb_get_latest(self.handle, field_index, ctypes.byref(val), ctypes.byref(ts))
+        if res != 0:
+            raise RuntimeError("get_latest failed")
+            
+        return {
+            "value": val.value,
+            "timestamp": ts.value
+        }
+
     def close(self):
         """Close and free the database handle"""
         if self.handle:

@@ -226,5 +226,11 @@ pub fn build(b: *std.Build) void {
     const python_bindings_step = b.step("python-bindings", "Build Python bindings (requires C bindings)");
     python_bindings_step.dependOn(&c_lib_install.step); // Python bindings depend on C library
     python_bindings_step.dependOn(&install_headers_step.step); // Python bindings might need headers for development
+
+    // --- Go Bindings ---
+    // Go bindings use the same C library as other C-compatible bindings
+    const go_bindings_step = b.step("go-bindings", "Build Go bindings (requires C bindings)");
+    go_bindings_step.dependOn(&c_lib_install.step); // Go bindings depend on C library
+    go_bindings_step.dependOn(&install_headers_step.step); // Go bindings need headers for CGO
 }
 

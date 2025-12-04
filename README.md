@@ -29,6 +29,7 @@ HOCDB is a hyper-specialized, high-performance time-series database designed for
 *   **Python**
 *   **Node.js**
 *   **Bun**
+*   **Go**
 
 ---
 
@@ -44,6 +45,13 @@ HOCDB is designed to be the fastest database you will ever use.
 | **Bandwidth** | **~330 MB/sec** (Write) / **~12 GB/sec** (Read) |
 
 *Benchmarks run on Apple Silicon (M-series).*
+
+### Running Benchmarks
+To reproduce these benchmarks on your machine:
+```bash
+# Run the full benchmark suite (Write, Read, Aggregation)
+zig build bench -Doptimize=ReleaseFast
+```
 
 ---
 
@@ -62,6 +70,15 @@ HOCDB is designed to be the fastest database you will ever use.
 *   **Zig 0.15.2** (for building the core)
 *   Your language of choice (C, C++, Python, Node, Bun)
 
+### Build & Test
+```bash
+# Run all tests
+zig build test
+
+# Run benchmarks
+zig build bench -- -Doptimize=ReleaseFast
+```
+
 ### Build Core & Bindings
 ```bash
 # Build everything (Core, C/C++ libs, Python bindings)
@@ -72,7 +89,54 @@ zig build python-bindings
 
 ---
 
-## Language Bindings
+## Usage Examples
+
+### ⚡ Zig
+Direct usage of the core library.
+
+```zig
+const std = @import("std");
+const hocdb = @import("hocdb");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    // Define Schema
+    var fields = std.ArrayList(hocdb.FieldInfo).init(allocator);
+    defer fields.deinit();
+    try fields.append(.{ .name = "timestamp", .type = .i64 });
+    try fields.append(.{ .name = "price", .type = .f64 });
+    try fields.append(.{ .name = "volume", .type = .f64 });
+
+    const schema = hocdb.Schema{ .fields = fields.items };
+
+    // Initialize DB
+    var db = try hocdb.DynamicTimeSeriesDB.init("BTC_USD", "data", allocator, schema, .{});
+    defer db.deinit();
+
+    // Append Data
+    try db.append(.{
+        .timestamp = 1620000000,
+        .price = 50000.0,
+        .volume = 1.5,
+    });
+    try db.flush();
+
+    // Query Range (Zero-Copy)
+    const results = try db.query(1620000000, 1620000100, allocator);
+    defer allocator.free(results); // Frees the slice, data is zero-copy mapped
+
+    // Aggregation (Native Speed)
+    // Calculate stats for 'price' (index 1)
+    const stats = try db.getStats(1620000000, 1620000100, 1); 
+    std.debug.print("Min: {d}, Max: {d}, Mean: {d}\n", .{ stats.min, stats.max, stats.mean });
+
+    // Get Latest Value
+    const latest = try db.getLatest(1);
+    std.debug.print("Latest Price: {d} @ {d}\n", .{ latest.value, latest.timestamp });
+}
+```
 
 ### 🐍 Python
 High-performance Python bindings using `ctypes`.
@@ -101,6 +165,16 @@ db.append({"timestamp": 1620000000, "price": 50000.0, "volume": 1.5})
 # Load (Zero-Copy)
 data = db.load()
 print(f"Loaded {len(data)} records")
+
+# Query Range
+results = db.query(1620000000, 1620000100)
+
+# Aggregation
+stats = db.get_stats(1620000000, 1620000100, 1) # Field index 1 (price)
+print(f"Min: {stats.min}, Max: {stats.max}, Mean: {stats.mean}")
+
+latest = db.get_latest(1)
+print(f"Latest: {latest.value}")
 ```
 
 ### 🚀 Node.js
@@ -119,6 +193,16 @@ const db = hocdb.dbInit("BTC_USD", "data", {
 
 hocdb.dbAppend(db, 1620000000, 50000.0, 1.5);
 const buffer = hocdb.dbLoad(db); // Zero-Copy ArrayBuffer
+
+// Query Range
+const results = db.query(1620000000n, 1620000100n);
+
+// Aggregation
+const stats = db.getStats(1620000000n, 1620000100n, 1);
+console.log(`Min: ${stats.min}, Max: ${stats.max}`);
+
+const latest = db.getLatest(1);
+console.log(`Latest: ${latest.value}`);
 ```
 
 ### 🥟 Bun
@@ -129,6 +213,16 @@ import { HOCDB } from "./bindings/bun/index.ts";
 
 const db = new HOCDB("BTC_USD", "./data", schema);
 db.append(1620000000, 50000.0, 1.5);
+
+// Query Range
+const results = db.query(1620000000n, 1620000100n);
+
+// Aggregation
+const stats = db.getStats(1620000000n, 1620000100n, 1);
+console.log(stats);
+
+const latest = db.getLatest(1);
+console.log(latest);
 ```
 
 ### 🇨 C / C++
@@ -148,6 +242,50 @@ int main() {
     
     // RAII Zero-Copy Load
     auto data = hocdb::load_with_raii<Trade>(db);
+
+    // Query Range
+    auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100);
+
+    // Aggregation
+    auto stats = db.getStats(1620000000, 1620000100, 1); // Index 1
+    std::cout << "Min: " << stats.min << std::endl;
+
+    auto [val, ts] = db.getLatest(1);
+    std::cout << "Latest: " << val << std::endl;
+}
+```
+
+### 🐹 Go
+Idiomatic Go bindings using CGO.
+
+```go
+package main
+
+import (
+    "fmt"
+    "hocdb"
+)
+
+func main() {
+    schema := []hocdb.Field{
+        {Name: "timestamp", Type: hocdb.TypeI64},
+        {Name: "price", Type: hocdb.TypeF64},
+    }
+
+    db, _ := hocdb.New("BTC_USD", "data", schema, hocdb.Options{})
+    defer db.Close()
+
+    // Append
+    record, _ := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0)
+    db.Append(record)
+
+    // Query Range
+    data, _ := db.Query(1620000000, 1620000100)
+    fmt.Printf("Queried %d bytes\n", len(data))
+
+    // Aggregation
+    stats, _ := db.GetStats(1620000000, 1620000100, 1)
+    fmt.Printf("Min: %f\n", stats.Min)
 }
 ```
 

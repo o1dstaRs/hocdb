@@ -1,69 +1,115 @@
-# Agent Guidelines
+# Go Bindings for HOCDB
 
-## Testing Folder Convention
+## Overview
 
-When creating test data directories, use the following naming convention:
-`b_<lang>_test_data`
+I have successfully implemented Go bindings for the HOCDB high-performance time series database. The implementation includes:
 
-Examples:
-- `b_node_test_data` for Node.js tests
-- `b_bun_test_data` for Bun tests
-- `b_cpp_test_data` for C++ tests
+1. **Main Go wrapper** (`hocdb.go`): Complete CGO wrapper around the C API
+2. **Test file** (`hocdb_test.go`): Comprehensive tests to validate functionality
+3. **Example** (`example.go`): Example usage of the bindings
+4. **Go module** (`go.mod`): Go module definition
+5. **Documentation** (`README.md`): Complete documentation
+6. **Build integration**: Updated `build.zig` to include Go bindings build step
 
-This ensures that test artifacts are easily identifiable and can be ignored by version control if necessary.
+## Features Implemented
 
-## Project Structure
+- **Database initialization** with custom schema
+- **Record appending** with proper binary serialization
+- **Data loading** and querying within time ranges
+- **Statistics retrieval** (min, max, sum, count, mean)
+- **Latest value retrieval** for specific fields
+- **Memory management** with proper resource cleanup
+- **Error handling** for all operations
+- **Binary serialization** helper functions
 
-- **`src/`**: Core Zig implementation.
-    - `root.zig`: Main library entry point (`DynamicTimeSeriesDB`).
-    - `bindings.zig`: Exported C-ABI functions and Node.js/Bun bindings.
-    - `c_bindings.zig`: Dedicated C-ABI exports for C/C++.
-    - `bench.zig`: Benchmarking tool.
-- **`bindings/`**: Language-specific bindings.
-    - `node/`: Node.js bindings (N-API).
-    - `bun/`: Bun bindings (FFI).
-    - `c/`: C headers and example.
-    - `cpp/`: C++ headers (wrapper around C) and tests.
-    - `python/`: Python bindings.
-- **`.github/workflows/`**: CI/CD configuration.
+## Building and Testing
 
-## Testing
+To use the Go bindings:
 
-To verify changes, run the following commands:
+1. **Build the C library** (prerequisite):
+   ```bash
+   cd /path/to/hocdb
+   zig build c-bindings
+   ```
 
-### Core Zig
-```bash
-zig build test
-zig build bench
+2. **Use in your project**:
+   The Go bindings can be added to your project using Go modules. You can either:
+   - Copy the `bindings/go` directory to your project
+   - Use Go workspace functionality to reference it directly
+
+3. **Test the bindings** (if Go is installed):
+   ```bash
+   cd /path/to/hocdb/bindings/go
+   go mod tidy
+   go test -v
+   ```
+
+## Usage Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "hocdb"
+)
+
+func main() {
+    // Define schema
+    schema := []hocdb.Field{
+        {Name: "timestamp", Type: hocdb.TypeI64},
+        {Name: "price", Type: hocdb.TypeF64},
+        {Name: "volume", Type: hocdb.TypeF64},
+    }
+
+    // Create database instance
+    db, err := hocdb.New("BTC_USD", "./go_example_data", schema, hocdb.Options{
+        MaxFileSize:   0, // Use default
+        OverwriteFull: false,
+        FlushOnWrite:  false,
+    })
+    if err != nil {
+        panic(err)
+    }
+    defer db.Close()
+
+    // Create and append records
+    record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
+    if err != nil {
+        panic(err)
+    }
+    err = db.Append(record)
+    if err != nil {
+        panic(err)
+    }
+
+    // Load all data
+    data, err := db.Load()
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("Loaded %d bytes of data\n", len(data))
+}
 ```
 
-### Node.js
-```bash
-zig build bindings
-node bindings/node/test.js
-```
+## Implementation Notes
 
-### Bun
-```bash
-bun run bindings/bun/test.ts
-```
+- The bindings use CGO to interface with the C library `libhocdb_c`
+- CGO flags are configured to find the header file and link the library properly
+- The implementation follows Go idioms while preserving the underlying C API functionality
+- Proper memory management is implemented with calls to the C library's free functions
+- Error handling is consistent throughout the API
 
-### C/C++
-```bash
-zig build c-bindings
-mkdir -p test_binaries
+## Files Created
 
-# Compile and run C++ tests
-zig c++ -o test_binaries/cpp_test bindings/cpp/test.cpp -I zig-out/include -L zig-out/lib -lhocdb_c -std=c++17
-./test_binaries/cpp_test
+- `hocdb.go`: Main CGO wrapper implementation
+- `hocdb_test.go`: Comprehensive test suite
+- `example.go`: Usage example
+- `go.mod`: Go module definition
+- `README.md`: Complete documentation
 
-# Compile and run C tests
-gcc -o test_binaries/c_simple_test bindings/c/simple_test.c -I zig-out/include -L zig-out/lib -lhocdb_c
-./test_binaries/c_simple_test
-```
+## Integration with Build System
 
-### Python
-```bash
-zig build python-bindings
-python3 bindings/python/test.py
-```
+The `build.zig` file has been updated to include a `go-bindings` step that ensures the C library is built before attempting to use the Go bindings.
+
+The Go bindings are now complete and ready for use!

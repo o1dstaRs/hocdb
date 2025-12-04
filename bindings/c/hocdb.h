@@ -75,6 +75,17 @@ void* hocdb_load(HOCDBHandle handle, size_t* out_len);
  */
 void* hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, size_t* out_len);
 
+typedef struct {
+    double min;
+    double max;
+    double sum;
+    uint64_t count;
+    double mean;
+} HOCDBStats;
+
+int hocdb_get_stats(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, size_t field_index, HOCDBStats* out_stats);
+int hocdb_get_latest(HOCDBHandle handle, size_t field_index, double* out_val, int64_t* out_ts);
+
 /**
  * Free memory allocated by hocdb_load
  * @param ptr Pointer returned by hocdb_load

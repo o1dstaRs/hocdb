@@ -122,6 +122,14 @@ module.exports = {
                 return result;
             },
 
+            getStats: (start, end, field_index) => {
+                return addon.dbGetStats(db, BigInt(start), BigInt(end), Number(field_index));
+            },
+
+            getLatest: (field_index) => {
+                return addon.dbGetLatest(db, Number(field_index));
+            },
+
             close: () => {
                 addon.dbClose(db);
             }

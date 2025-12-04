@@ -25,6 +25,15 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr],
         returns: FFIType.ptr,
     },
+    hocdb_get_stats: {
+        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.u64, FFIType.ptr],
+        returns: FFIType.i32,
+    },
+    hocdb_get_latest: {
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
+        returns: FFIType.i32,
+    },
+
     hocdb_close: {
         args: [FFIType.ptr],
         returns: FFIType.void,
@@ -225,6 +234,42 @@ export class HOCDB {
         symbols.hocdb_free(dataPtr);
 
         return result;
+    }
+
+    getStats(start: bigint, end: bigint, fieldIndex: number): { min: number, max: number, sum: number, count: bigint, mean: number } {
+        // Struct layout: min(f64), max(f64), sum(f64), count(u64), mean(f64)
+        // Size: 8 + 8 + 8 + 8 + 8 = 40 bytes
+        const statsBuffer = new Uint8Array(40);
+        const res = symbols.hocdb_get_stats(this.db, start, end, BigInt(fieldIndex), ptr(statsBuffer));
+
+        if (res !== 0) {
+            throw new Error("getStats failed");
+        }
+
+        const view = new DataView(statsBuffer.buffer);
+        return {
+            min: view.getFloat64(0, true),
+            max: view.getFloat64(8, true),
+            sum: view.getFloat64(16, true),
+            count: view.getBigUint64(24, true),
+            mean: view.getFloat64(32, true)
+        };
+    }
+
+    getLatest(fieldIndex: number): { value: number, timestamp: bigint } {
+        const valPtr = new Float64Array(1);
+        const tsPtr = new BigInt64Array(1);
+
+        const res = symbols.hocdb_get_latest(this.db, BigInt(fieldIndex), ptr(valPtr), ptr(tsPtr));
+
+        if (res !== 0) {
+            throw new Error("getLatest failed");
+        }
+
+        return {
+            value: valPtr[0],
+            timestamp: tsPtr[0]
+        };
     }
 
     close() {

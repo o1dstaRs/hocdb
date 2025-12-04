@@ -20,6 +20,14 @@ pub const FieldInfo = struct {
     type: FieldType,
 };
 
+pub const Stats = extern struct {
+    min: f64,
+    max: f64,
+    sum: f64,
+    count: u64,
+    mean: f64,
+};
+
 pub const Schema = struct {
     fields: []const FieldInfo,
 
@@ -143,6 +151,7 @@ pub const DynamicTimeSeriesDB = struct {
     record_size: usize,
     timestamp_offset: usize,
     schema_hash: u64,
+    fields: []FieldInfo, // Store schema fields
 
     allocator: std.mem.Allocator,
 
@@ -227,6 +236,18 @@ pub const DynamicTimeSeriesDB = struct {
         // Seek to write cursor
         try file.seekTo(write_cursor);
 
+        // Copy fields
+        const fields_copy = try allocator.alloc(FieldInfo, schema.fields.len);
+        errdefer allocator.free(fields_copy);
+        for (schema.fields, 0..) |f, i| {
+            const name_copy = try allocator.dupe(u8, f.name);
+            errdefer {
+                for (0..i) |j| allocator.free(fields_copy[j].name);
+                allocator.free(fields_copy);
+            }
+            fields_copy[i] = .{ .name = name_copy, .type = f.type };
+        }
+
         return Self{
             .file = file,
             .buffered_writer = undefined, // Init below
@@ -238,6 +259,7 @@ pub const DynamicTimeSeriesDB = struct {
             .record_size = record_size,
             .timestamp_offset = ts_offset,
             .schema_hash = schema_hash,
+            .fields = fields_copy,
             .allocator = allocator,
             .is_wrapped = is_wrapped,
         };
@@ -252,6 +274,8 @@ pub const DynamicTimeSeriesDB = struct {
         self.flush() catch {};
         self.file.unlock();
         self.file.close();
+        for (self.fields) |f| self.allocator.free(f.name);
+        self.allocator.free(self.fields);
     }
 
     pub fn flush(self: *Self) !void {
@@ -357,6 +381,129 @@ pub const DynamicTimeSeriesDB = struct {
         }
 
         return result;
+    }
+
+    fn getFieldOffset(self: *Self, field_index: usize) !usize {
+        if (field_index >= self.fields.len) return error.InvalidFieldIndex;
+        var offset: usize = 0;
+        for (0..field_index) |i| {
+            offset += self.fields[i].type.size();
+        }
+        return offset;
+    }
+
+    pub fn getLatest(self: *Self, field_index: usize) !struct { value: f64, timestamp: i64 } {
+        try self.flush();
+        if (self.count() == 0) return error.EmptyDB;
+
+        if (field_index >= self.fields.len) return error.InvalidFieldIndex;
+
+        // Get the last written record
+        var last_record_offset: u64 = 0;
+        if (self.write_cursor == HEADER_SIZE) {
+            if (!self.is_wrapped) return error.EmptyDB;
+            const data_capacity = self.max_file_size - HEADER_SIZE;
+            last_record_offset = HEADER_SIZE + data_capacity - self.record_size;
+        } else {
+            last_record_offset = self.write_cursor - self.record_size;
+        }
+
+        var record_buf: [4096]u8 = undefined;
+        if (self.record_size > record_buf.len) return error.RecordTooLarge;
+
+        const len = try self.file.preadAll(record_buf[0..self.record_size], last_record_offset);
+        if (len != self.record_size) return error.UnexpectedEndOfFile;
+
+        const ts = std.mem.bytesToValue(i64, record_buf[self.timestamp_offset .. self.timestamp_offset + 8]);
+
+        const field_offset = try self.getFieldOffset(field_index);
+        const field_type = self.fields[field_index].type;
+
+        const val: f64 = switch (field_type) {
+            .f64 => std.mem.bytesToValue(f64, record_buf[field_offset .. field_offset + 8]),
+            .i64 => @floatFromInt(std.mem.bytesToValue(i64, record_buf[field_offset .. field_offset + 8])),
+            .u64 => @floatFromInt(std.mem.bytesToValue(u64, record_buf[field_offset .. field_offset + 8])),
+            .u8 => @floatFromInt(std.mem.bytesToValue(u8, record_buf[field_offset .. field_offset + 1])),
+        };
+
+        return .{ .value = val, .timestamp = ts };
+    }
+
+    pub fn getStats(self: *Self, start_ts: i64, end_ts: i64, field_index: usize) !Stats {
+        try self.flush();
+        if (field_index >= self.fields.len) return error.InvalidFieldIndex;
+
+        const start_idx = try self.binarySearch(start_ts);
+        const end_idx = try self.binarySearch(end_ts);
+
+        if (start_idx >= end_idx) {
+            return Stats{ .min = 0, .max = 0, .sum = 0, .count = 0, .mean = 0 };
+        }
+
+        const field_offset = try self.getFieldOffset(field_index);
+        const field_type = self.fields[field_index].type;
+
+        var min: f64 = std.math.floatMax(f64);
+        var max: f64 = -std.math.floatMax(f64);
+        var sum: f64 = 0;
+        var stats_count: u64 = 0;
+
+        var current_idx = start_idx;
+
+        const CHUNK_RECORDS = 1024;
+        const chunk_bytes_size = CHUNK_RECORDS * self.record_size;
+        const alloc_buf = try self.allocator.alloc(u8, chunk_bytes_size);
+        defer self.allocator.free(alloc_buf);
+
+        while (current_idx < end_idx) {
+            const physical_offset = self.getPhysicalOffset(current_idx);
+
+            var chunk_count: u64 = 0;
+            if (self.is_wrapped) {
+                const data_capacity = self.max_file_size - HEADER_SIZE;
+                const offset_in_data = physical_offset - HEADER_SIZE;
+                const records_until_end = (data_capacity - offset_in_data) / self.record_size;
+                chunk_count = @min(end_idx - current_idx, records_until_end);
+            } else {
+                chunk_count = end_idx - current_idx;
+            }
+            chunk_count = @min(chunk_count, CHUNK_RECORDS);
+
+            const read_size = chunk_count * self.record_size;
+            const len = try self.file.preadAll(alloc_buf[0..read_size], physical_offset);
+            if (len != read_size) return error.UnexpectedEndOfFile;
+
+            var i: usize = 0;
+            while (i < chunk_count) : (i += 1) {
+                const rec_start = i * self.record_size;
+                const val_bytes = alloc_buf[rec_start + field_offset .. rec_start + field_offset + field_type.size()];
+
+                const val: f64 = switch (field_type) {
+                    .f64 => std.mem.bytesToValue(f64, val_bytes[0..8]),
+                    .i64 => @floatFromInt(std.mem.bytesToValue(i64, val_bytes[0..8])),
+                    .u64 => @floatFromInt(std.mem.bytesToValue(u64, val_bytes[0..8])),
+                    .u8 => @floatFromInt(std.mem.bytesToValue(u8, val_bytes[0..1])),
+                };
+
+                if (val < min) min = val;
+                if (val > max) max = val;
+                sum += val;
+                stats_count += 1;
+            }
+            current_idx += chunk_count;
+        }
+
+        if (stats_count == 0) {
+            return Stats{ .min = 0, .max = 0, .sum = 0, .count = 0, .mean = 0 };
+        }
+
+        return Stats{
+            .min = min,
+            .max = max,
+            .sum = sum,
+            .count = stats_count,
+            .mean = sum / @as(f64, @floatFromInt(stats_count)),
+        };
     }
 
     pub fn load(self: *Self, allocator: std.mem.Allocator) ![]u8 {
@@ -528,4 +675,9 @@ test "TimeSeriesDB generic usage" {
         // Valid append
         try db.append(.{ .timestamp = 201, .value = 3.3 });
     }
+}
+
+test {
+    _ = @import("test_stats.zig");
+    _ = @import("test_query.zig");
 }

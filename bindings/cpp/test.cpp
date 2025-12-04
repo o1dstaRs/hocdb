@@ -129,6 +129,12 @@ void test_error_handling() {
 
 int main() {
     try {
+        // Clean up previous test runs
+        if (std::filesystem::exists("b_cpp_test_data")) {
+            std::filesystem::remove_all("b_cpp_test_data");
+        }
+        std::filesystem::create_directory("b_cpp_test_data");
+
         // Define schema once for all tests that need it
         std::vector<hocdb::Field> schema = {
             {"timestamp", HOCDB_TYPE_I64},

@@ -1,0 +1,218 @@
+package hocdb
+
+import (
+	"os"
+	"testing"
+)
+
+func TestHOCDB(t *testing.T) {
+	// Define schema
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "volume", Type: TypeF64},
+	}
+
+	// Create test directory
+	testDir := "../../b_go_test_data"
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil && !os.IsExist(err) {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	// Create database instance
+	db, err := New("TEST_BTC_USD", testDir, schema, Options{
+		MaxFileSize:   0, // Use default
+		OverwriteFull: false,
+		FlushOnWrite:  false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create HOCDB instance: %v", err)
+	}
+	defer db.Close()
+
+	// Create and append a record
+	record, err := CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
+	if err != nil {
+		t.Fatalf("Failed to create record: %v", err)
+	}
+
+	err = db.Append(record)
+	if err != nil {
+		t.Fatalf("Failed to append record: %v", err)
+	}
+
+	// Append another record
+	record, err = CreateRecordBytes(schema, int64(1620000001), 50001.0, 1.6)
+	if err != nil {
+		t.Fatalf("Failed to create record: %v", err)
+	}
+
+	err = db.Append(record)
+	if err != nil {
+		t.Fatalf("Failed to append record: %v", err)
+	}
+
+	// Test flush
+	err = db.Flush()
+	if err != nil {
+		t.Fatalf("Failed to flush: %v", err)
+	}
+
+	// Load all data
+	data, err := db.Load()
+	if err != nil {
+		t.Fatalf("Failed to load data: %v", err)
+	}
+
+	t.Logf("Loaded %d bytes of data", len(data))
+
+	// Query data
+	qdata, err := db.Query(1620000000, 1620000002)
+	if err != nil {
+		t.Fatalf("Failed to query data: %v", err)
+	}
+
+	t.Logf("Queried %d bytes of data in range", len(qdata))
+
+	// Test GetLatest
+	latest, err := db.GetLatest(1) // Get latest price
+	if err != nil {
+		t.Fatalf("Failed to get latest: %v", err)
+	}
+
+	if latest.Value != 50001.0 {
+		t.Errorf("Expected latest price 50001.0, got %f", latest.Value)
+	}
+
+	if latest.Timestamp != 1620000001 {
+		t.Errorf("Expected latest timestamp 1620000001, got %d", latest.Timestamp)
+	}
+
+	// Test GetStats
+	stats, err := db.GetStats(1620000000, 1620000002, 1) // Get stats for price field
+	if err != nil {
+		t.Fatalf("Failed to get stats: %v", err)
+	}
+
+	if stats.Count != 2 {
+		t.Errorf("Expected count 2, got %d", stats.Count)
+	}
+
+	if stats.Min != 50000.0 {
+		t.Errorf("Expected min 50000.0, got %f", stats.Min)
+	}
+
+	if stats.Max != 50001.0 {
+		t.Errorf("Expected max 50001.0, got %f", stats.Max)
+	}
+}
+
+func TestCreateRecordBytes(t *testing.T) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "volume", Type: TypeU64},
+	}
+
+	// Test creating a record with mixed types
+	record, err := CreateRecordBytes(schema, int64(1620000000), 50000.0, uint64(1500))
+	if err != nil {
+		t.Fatalf("Failed to create record: %v", err)
+	}
+
+	// Check that record has the right size (8 bytes per field)
+	expectedSize := 8 * len(schema)
+	if len(record) != expectedSize {
+		t.Errorf("Expected record size %d, got %d", expectedSize, len(record))
+	}
+
+	// Test error case: wrong number of values
+	_, err = CreateRecordBytes(schema, int64(1620000000), 50000.0) // Missing one value
+	if err == nil {
+		t.Error("Expected error for mismatched schema/value count")
+	}
+}
+
+func BenchmarkAppend(b *testing.B) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "volume", Type: TypeF64},
+	}
+	testDir := "../../b_go_test_data"
+	os.MkdirAll(testDir, 0755)
+	// defer os.RemoveAll(testDir)
+
+	db, _ := New("BENCH_APPEND", testDir, schema, Options{})
+	defer db.Close()
+
+	record, _ := CreateRecordBytes(schema, int64(100), 10.0, 20.0)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		db.Append(record)
+	}
+}
+
+func BenchmarkLoad(b *testing.B) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "volume", Type: TypeF64},
+	}
+	testDir := "../../b_go_test_data"
+	os.MkdirAll(testDir, 0755)
+	// defer os.RemoveAll(testDir)
+
+	db, _ := New("BENCH_LOAD", testDir, schema, Options{})
+	defer db.Close()
+
+	record, _ := CreateRecordBytes(schema, int64(100), 10.0, 20.0)
+	for i := 0; i < 10000; i++ {
+		db.Append(record)
+	}
+	db.Flush()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		db.Load()
+	}
+}
+
+func BenchmarkGetStats(b *testing.B) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "volume", Type: TypeF64},
+	}
+	testDir := "../../b_go_test_data"
+	os.MkdirAll(testDir, 0755)
+	// defer os.RemoveAll(testDir)
+
+	db, _ := New("BENCH_STATS", testDir, schema, Options{})
+	defer db.Close()
+
+	// Append 100k records
+	for i := 0; i < 100000; i++ {
+		record, _ := CreateRecordBytes(schema, int64(i), float64(i), float64(i))
+		db.Append(record)
+	}
+	db.Flush()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		db.GetStats(0, 100000, 1)
+	}
+}
+
+func TestMain(m *testing.M) {
+	// Run tests
+	code := m.Run()
+
+	// Cleanup
+	// os.RemoveAll("./b_go_test_data")
+
+	// Exit with the same code as the tests
+	os.Exit(code)
+}

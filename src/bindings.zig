@@ -89,6 +89,10 @@ extern "c" fn napi_get_value_bool(env: napi_env, value: napi_value, result: *boo
 extern "c" fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *napi_value) napi_status;
 extern "c" fn napi_get_array_length(env: napi_env, value: napi_value, result: *u32) napi_status;
 extern "c" fn napi_get_buffer_info(env: napi_env, value: napi_value, data: *?*anyopaque, length: *usize) napi_status;
+extern "c" fn napi_create_object(env: napi_env, result: *napi_value) napi_status;
+extern "c" fn napi_set_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, value: napi_value) napi_status;
+extern "c" fn napi_create_bigint_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
+extern "c" fn napi_create_bigint_uint64(env: napi_env, value: u64, result: *napi_value) napi_status;
 
 // --- Helper Functions ---
 
@@ -322,6 +326,77 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return result;
 }
 
+// dbGetStats(db: external, start: i64, end: i64, field_index: u32): Object
+fn dbGetStats(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
+    const args = getArgs(env, info, 4) catch return throwError(env, "Expected 4 arguments");
+
+    var db_ptr: ?*anyopaque = null;
+    _ = napi_get_value_external(env, args[0], &db_ptr);
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
+
+    var start: i64 = 0;
+    var lossless: bool = true;
+    if (napi_get_value_bigint_int64(env, args[1], &start, &lossless) != .ok) {
+        if (napi_get_value_int64(env, args[1], &start) != .ok) return throwError(env, "Invalid start timestamp");
+    }
+
+    var end: i64 = 0;
+    if (napi_get_value_bigint_int64(env, args[2], &end, &lossless) != .ok) {
+        if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp");
+    }
+
+    var field_index: i64 = 0;
+    if (napi_get_value_int64(env, args[3], &field_index) != .ok) return throwError(env, "Invalid field index");
+
+    const stats = db.getStats(start, end, @intCast(field_index)) catch |err| {
+        return throwError(env, @errorName(err));
+    };
+
+    var result: napi_value = undefined;
+    _ = napi_create_object(env, &result);
+
+    var val: napi_value = undefined;
+    _ = napi_create_double(env, stats.min, &val);
+    _ = napi_set_named_property(env, result, "min", val);
+    _ = napi_create_double(env, stats.max, &val);
+    _ = napi_set_named_property(env, result, "max", val);
+    _ = napi_create_double(env, stats.sum, &val);
+    _ = napi_set_named_property(env, result, "sum", val);
+    _ = napi_create_double(env, stats.mean, &val);
+    _ = napi_set_named_property(env, result, "mean", val);
+    _ = napi_create_bigint_uint64(env, @intCast(stats.count), &val);
+    _ = napi_set_named_property(env, result, "count", val);
+
+    return result;
+}
+
+// dbGetLatest(db: external, field_index: u32): Object
+fn dbGetLatest(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
+    const args = getArgs(env, info, 2) catch return throwError(env, "Expected 2 arguments");
+
+    var db_ptr: ?*anyopaque = null;
+    _ = napi_get_value_external(env, args[0], &db_ptr);
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
+
+    var field_index: i64 = 0;
+    if (napi_get_value_int64(env, args[1], &field_index) != .ok) return throwError(env, "Invalid field index");
+
+    const latest = db.getLatest(@intCast(field_index)) catch |err| {
+        return throwError(env, @errorName(err));
+    };
+
+    var result: napi_value = undefined;
+    _ = napi_create_object(env, &result);
+
+    var val: napi_value = undefined;
+    _ = napi_create_double(env, latest.value, &val);
+    _ = napi_set_named_property(env, result, "value", val);
+    _ = napi_create_bigint_int64(env, latest.timestamp, &val);
+    _ = napi_set_named_property(env, result, "timestamp", val);
+
+    return result;
+}
+
 // dbClose(db: external): void
 fn dbClose(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     const args = getArgs(env, info, 1) catch return throwError(env, "Expected 1 argument");
@@ -344,6 +419,8 @@ export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value
         .{ .utf8name = "dbAppend", .name = null, .method = dbAppend, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbLoad", .name = null, .method = dbLoad, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbQuery", .name = null, .method = dbQuery, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
+        .{ .utf8name = "dbGetStats", .name = null, .method = dbGetStats, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
+        .{ .utf8name = "dbGetLatest", .name = null, .method = dbGetLatest, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbClose", .name = null, .method = dbClose, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
     };
 
@@ -460,6 +537,21 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *
     const data = db.query(start_ts, end_ts, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
+}
+
+export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, out_stats: *hocdb.Stats) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const stats = db.getStats(start_ts, end_ts, field_index) catch return -1;
+    out_stats.* = stats;
+    return 0;
+}
+
+export fn hocdb_get_latest(db_ptr: *anyopaque, field_index: usize, out_val: *f64, out_ts: *i64) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const latest = db.getLatest(field_index) catch return -1;
+    out_val.* = latest.value;
+    out_ts.* = latest.timestamp;
+    return 0;
 }
 
 export fn hocdb_close(db_ptr: *anyopaque) void {

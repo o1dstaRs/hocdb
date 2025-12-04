@@ -114,6 +114,21 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *
     return data.ptr;
 }
 
+export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, out_stats: *hocdb.Stats) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const stats = db.getStats(start_ts, end_ts, field_index) catch return -1;
+    out_stats.* = stats;
+    return 0;
+}
+
+export fn hocdb_get_latest(db_ptr: *anyopaque, field_index: usize, out_val: *f64, out_ts: *i64) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const latest = db.getLatest(field_index) catch return -1;
+    out_val.* = latest.value;
+    out_ts.* = latest.timestamp;
+    return 0;
+}
+
 export fn hocdb_close(db_ptr: *anyopaque) void {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.deinit();
