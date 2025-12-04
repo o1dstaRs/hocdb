@@ -65,6 +65,17 @@ int hocdb_flush(HOCDBHandle handle);
 void* hocdb_load(HOCDBHandle handle, size_t* out_len);
 
 /**
+ * Query records in a time range
+ * @param handle Database handle
+ * @param start_ts Start timestamp (inclusive)
+ * @param end_ts End timestamp (exclusive)
+ * @param out_len Output parameter to store the number of bytes loaded
+ * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
+ *         Returns NULL on failure
+ */
+void* hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, size_t* out_len);
+
+/**
  * Free memory allocated by hocdb_load
  * @param ptr Pointer returned by hocdb_load
  */

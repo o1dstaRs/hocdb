@@ -77,6 +77,7 @@ extern "c" fn napi_create_double(env: napi_env, value: f64, result: *napi_value)
 extern "c" fn napi_create_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
 extern "c" fn napi_get_value_double(env: napi_env, value: napi_value, result: *f64) napi_status;
 extern "c" fn napi_get_value_int64(env: napi_env, value: napi_value, result: *i64) napi_status;
+extern "c" fn napi_get_value_bigint_int64(env: napi_env, value: napi_value, result: *i64, lossless: *bool) napi_status;
 extern "c" fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: ?[*]u8, bufsize: usize, result: ?*usize) napi_status;
 extern "c" fn napi_create_external(env: napi_env, data: *anyopaque, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
 extern "c" fn napi_get_value_external(env: napi_env, value: napi_value, result: *?*anyopaque) napi_status;
@@ -282,6 +283,45 @@ fn dbLoad(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return result;
 }
 
+// dbQuery(db: external, start: i64, end: i64): ArrayBuffer
+fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
+    const args = getArgs(env, info, 3) catch return throwError(env, "Expected 3 arguments");
+
+    var db_ptr: ?*anyopaque = null;
+    _ = napi_get_value_external(env, args[0], &db_ptr);
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
+
+    var start: i64 = 0;
+    var lossless: bool = true;
+    if (napi_get_value_bigint_int64(env, args[1], &start, &lossless) != .ok) {
+        // Fallback to Number?
+        if (napi_get_value_int64(env, args[1], &start) != .ok) return throwError(env, "Invalid start timestamp (expected BigInt or Number)");
+    }
+
+    var end: i64 = 0;
+    if (napi_get_value_bigint_int64(env, args[2], &end, &lossless) != .ok) {
+        if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp (expected BigInt or Number)");
+    }
+
+    // Use C allocator so we can free it with std.c.free in finalizer
+    const allocator = std.heap.c_allocator;
+
+    db.flush() catch |err| {
+        return throwError(env, @errorName(err));
+    };
+
+    const data = db.query(start, end, allocator) catch |err| {
+        return throwError(env, @errorName(err));
+    };
+
+    // Create External ArrayBuffer
+    var result: napi_value = undefined;
+    const byte_length = data.len;
+
+    _ = napi_create_external_arraybuffer(env, data.ptr, byte_length, freeData, null, &result);
+    return result;
+}
+
 // dbClose(db: external): void
 fn dbClose(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     const args = getArgs(env, info, 1) catch return throwError(env, "Expected 1 argument");
@@ -303,6 +343,7 @@ export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value
         .{ .utf8name = "dbInit", .name = null, .method = dbInit, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbAppend", .name = null, .method = dbAppend, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbLoad", .name = null, .method = dbLoad, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
+        .{ .utf8name = "dbQuery", .name = null, .method = dbQuery, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbClose", .name = null, .method = dbClose, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
     };
 
@@ -409,6 +450,14 @@ export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.flush() catch return null;
     const data = db.load(std.heap.c_allocator) catch return null;
+    out_len.* = data.len;
+    return data.ptr;
+}
+
+export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *usize) ?[*]u8 {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    db.flush() catch return null;
+    const data = db.query(start_ts, end_ts, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
 }

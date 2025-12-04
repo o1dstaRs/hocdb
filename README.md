@@ -4,7 +4,18 @@
 
 # HOCDB: Universal High-Performance Time-Series Database
 
-![Build Status](https://github.com/stepan/hocdb/actions/workflows/test.yml/badge.svg)
+<p align="center">
+  <a href="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml">
+    <img src="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml/badge.svg" alt="CI Status">
+  </a>
+  <a href="https://ziglang.org/download/">
+    <img src="https://img.shields.io/badge/Zig-0.15.2-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey" alt="Platform">
+</p>
 
 > **The World's Most Performant Time-Series Database.**
 > *Built for speed. Built for scale. Built for victory.*

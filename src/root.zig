@@ -4,11 +4,13 @@ pub const FieldType = enum(u8) {
     i64 = 1,
     f64 = 2,
     u64 = 3,
+    u8 = 4,
     // Add more as needed
 
     pub fn size(self: FieldType) usize {
         return switch (self) {
             .i64, .f64, .u64 => 8,
+            .u8 => 1,
         };
     }
 };
@@ -74,13 +76,15 @@ pub const DynamicTimeSeriesDB = struct {
         max_file_size: u64,
         write_cursor: *u64,
         overwrite_on_full: bool,
+        is_wrapped: *bool,
 
-        pub fn init(file: std.fs.File, max_size: u64, cursor: *u64, overwrite: bool) @This() {
+        pub fn init(file: std.fs.File, max_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool) @This() {
             return .{
                 .file = file,
                 .max_file_size = max_size,
                 .write_cursor = cursor,
                 .overwrite_on_full = overwrite,
+                .is_wrapped = wrapped,
             };
         }
 
@@ -102,6 +106,7 @@ pub const DynamicTimeSeriesDB = struct {
                     if (!self.overwrite_on_full) return error.DiskFull;
                     // Wrap around
                     self.write_cursor.* = HEADER_SIZE;
+                    self.is_wrapped.* = true;
                     try self.file.seekTo(HEADER_SIZE);
                     continue;
                 }
@@ -132,6 +137,7 @@ pub const DynamicTimeSeriesDB = struct {
     overwrite_on_full: bool,
     flush_on_write: bool,
     write_cursor: u64,
+    is_wrapped: bool = false,
 
     // Schema info
     record_size: usize,
@@ -172,6 +178,7 @@ pub const DynamicTimeSeriesDB = struct {
         const stat = try file.stat();
         var last_timestamp: ?i64 = null;
         var write_cursor: u64 = HEADER_SIZE;
+        var is_wrapped = false;
 
         if (stat.size == 0) {
             // New file: Write Header
@@ -210,6 +217,9 @@ pub const DynamicTimeSeriesDB = struct {
                 // Simple linear scan for now
                 try file.seekTo(HEADER_SIZE);
                 write_cursor = stat.size; // Default to end if we don't scan
+                if (stat.size >= effective_max_size) {
+                    is_wrapped = true;
+                }
                 // TODO: Implement scan
             }
         }
@@ -229,12 +239,13 @@ pub const DynamicTimeSeriesDB = struct {
             .timestamp_offset = ts_offset,
             .schema_hash = schema_hash,
             .allocator = allocator,
+            .is_wrapped = is_wrapped,
         };
     }
 
     // Post-init to set up self-referencing buffered writer
     pub fn initWriter(self: *Self) void {
-        self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, &self.write_cursor, self.overwrite_on_full);
+        self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped);
     }
 
     pub fn deinit(self: *Self) void {
@@ -262,6 +273,90 @@ pub const DynamicTimeSeriesDB = struct {
         if (self.flush_on_write) {
             try self.flush();
         }
+    }
+
+    pub fn count(self: *Self) u64 {
+        if (self.is_wrapped) {
+            return (self.max_file_size - HEADER_SIZE) / self.record_size;
+        } else {
+            return (self.write_cursor - HEADER_SIZE) / self.record_size;
+        }
+    }
+
+    fn getPhysicalOffset(self: *Self, index: u64) u64 {
+        if (self.is_wrapped) {
+            const data_capacity = self.max_file_size - HEADER_SIZE;
+            const relative_offset = (self.write_cursor - HEADER_SIZE + index * self.record_size) % data_capacity;
+            return HEADER_SIZE + relative_offset;
+        } else {
+            return HEADER_SIZE + index * self.record_size;
+        }
+    }
+
+    fn readTimestampAt(self: *Self, index: u64) !i64 {
+        const offset = self.getPhysicalOffset(index);
+        var buf: [8]u8 = undefined;
+        const len = try self.file.preadAll(&buf, offset + self.timestamp_offset);
+        if (len != 8) return error.UnexpectedEndOfFile;
+        return std.mem.bytesToValue(i64, &buf);
+    }
+
+    pub fn binarySearch(self: *Self, target: i64) !u64 {
+        var left: u64 = 0;
+        var right: u64 = self.count();
+
+        while (left < right) {
+            const mid = left + (right - left) / 2;
+            const ts = try self.readTimestampAt(mid);
+            if (ts < target) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        return left;
+    }
+
+    pub fn query(self: *Self, start_ts: i64, end_ts: i64, allocator: std.mem.Allocator) ![]u8 {
+        try self.flush();
+
+        const start_idx = try self.binarySearch(start_ts);
+        const end_idx = try self.binarySearch(end_ts);
+
+        if (start_idx >= end_idx) {
+            return allocator.alloc(u8, 0);
+        }
+
+        const record_count = end_idx - start_idx;
+        const result_size = record_count * self.record_size;
+        const result = try allocator.alloc(u8, result_size);
+        errdefer allocator.free(result);
+
+        var dest_offset: usize = 0;
+        var current_idx = start_idx;
+
+        while (current_idx < end_idx) {
+            const physical_offset = self.getPhysicalOffset(current_idx);
+
+            var chunk_count: u64 = 0;
+            if (self.is_wrapped) {
+                const data_capacity = self.max_file_size - HEADER_SIZE;
+                const offset_in_data = physical_offset - HEADER_SIZE;
+                const records_until_end = (data_capacity - offset_in_data) / self.record_size;
+                chunk_count = @min(end_idx - current_idx, records_until_end);
+            } else {
+                chunk_count = end_idx - current_idx;
+            }
+
+            const chunk_size = chunk_count * self.record_size;
+            const len = try self.file.preadAll(result[dest_offset .. dest_offset + chunk_size], physical_offset);
+            if (len != chunk_size) return error.UnexpectedEndOfFile;
+
+            dest_offset += chunk_size;
+            current_idx += chunk_count;
+        }
+
+        return result;
     }
 
     pub fn load(self: *Self, allocator: std.mem.Allocator) ![]u8 {
@@ -303,6 +398,7 @@ pub fn TimeSeriesDB(comptime T: type) type {
                     i64 => FieldType.i64,
                     f64 => FieldType.f64,
                     u64 => FieldType.u64,
+                    u8 => FieldType.u8,
                     else => @compileError("Unsupported field type"),
                 };
                 field_infos_storage[i] = .{ .name = field.name, .type = f_type };
@@ -311,6 +407,7 @@ pub fn TimeSeriesDB(comptime T: type) type {
             const schema = Schema{ .fields = &field_infos_storage };
 
             var dynamic_db_ptr = try allocator.create(DynamicTimeSeriesDB);
+            errdefer allocator.destroy(dynamic_db_ptr);
             dynamic_db_ptr.* = try DynamicTimeSeriesDB.init(ticker, dir_path, allocator, schema, config);
             dynamic_db_ptr.initWriter();
 
@@ -329,6 +426,26 @@ pub fn TimeSeriesDB(comptime T: type) type {
         pub fn append(self: *Self, data: T) !void {
             const bytes = std.mem.asBytes(&data);
             try self.dynamic_db.append(bytes);
+        }
+
+        pub fn query(self: *Self, start_ts: i64, end_ts: i64, allocator: std.mem.Allocator) ![]T {
+            const raw_bytes = try self.dynamic_db.query(start_ts, end_ts, allocator);
+            errdefer allocator.free(raw_bytes);
+
+            const record_size = self.dynamic_db.record_size;
+            if (raw_bytes.len % record_size != 0) return error.CorruptedData;
+
+            const count = raw_bytes.len / record_size;
+            const result = try allocator.alloc(T, count);
+
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                const record_bytes = raw_bytes[i * record_size .. (i + 1) * record_size];
+                result[i] = std.mem.bytesToValue(T, record_bytes);
+            }
+
+            allocator.free(raw_bytes);
+            return result;
         }
 
         pub fn load(self: *Self, allocator: std.mem.Allocator) ![]T {

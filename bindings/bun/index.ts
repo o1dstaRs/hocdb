@@ -21,6 +21,10 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr, FFIType.ptr],
         returns: FFIType.ptr,
     },
+    hocdb_query: {
+        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr],
+        returns: FFIType.ptr,
+    },
     hocdb_close: {
         args: [FFIType.ptr],
         returns: FFIType.void,
@@ -165,6 +169,60 @@ export class HOCDB {
             }
             result[i] = record;
         }
+
+        return result;
+    }
+
+    query(start: bigint, end: bigint): Record<string, number | bigint>[] {
+        const lenPtr = new BigUint64Array(1);
+        const dataPtr = symbols.hocdb_query(this.db, start, end, ptr(lenPtr));
+
+        if (!dataPtr && lenPtr[0] > 0n) { // If len > 0 but ptr null, error. If len 0, ptr might be null?
+            // Actually if ptr is null, it means error OR empty?
+            // Zig returns null on error.
+            // If empty, it returns allocator.alloc(0) which might be valid ptr or not depending on allocator?
+            // But my Zig code returns null on error.
+            // If empty, it returns empty slice.
+            // Let's assume null means error.
+            // But wait, if query returns empty, it returns valid slice pointer (maybe).
+            // Let's check Zig code: `return allocator.alloc(u8, 0)` -> returns slice with len 0.
+            // `return data.ptr` -> returns pointer.
+            // If len is 0, ptr might be whatever.
+            // But `hocdb_query` returns `?[*]u8`.
+            // If error, returns `null`.
+            // So if `dataPtr` is 0 (null), it's an error?
+            // Unless len is 0.
+            if (lenPtr[0] === 0n) return [];
+            throw new Error("Query failed");
+        }
+
+        if (lenPtr[0] === 0n) return [];
+
+        const totalBytes = Number(lenPtr[0]);
+        const buffer = toArrayBuffer(dataPtr, 0, totalBytes);
+        const view = new DataView(buffer);
+
+        const count = totalBytes / this.recordSize;
+        const result = new Array(count);
+
+        for (let i = 0; i < count; i++) {
+            const record: Record<string, number | bigint> = {};
+            const base = i * this.recordSize;
+            for (const [name, info] of Object.entries(this.fieldOffsets)) {
+                switch (info.type) {
+                    case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
+                    case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
+                    case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                }
+            }
+            result[i] = record;
+        }
+
+        // Free the result buffer from Zig?
+        // Zig allocated it with c_allocator.
+        // We need to free it.
+        // `hocdb_free` is exported.
+        symbols.hocdb_free(dataPtr);
 
         return result;
     }

@@ -165,6 +165,76 @@ pub fn main() !void {
         try stdout.print("Checksum:   {d:.2}\n", .{total_volume_checksum});
     }
 
+    // --- QUERY BENCHMARK ---
+    {
+        try stdout.print("\n[QUERY BENCHMARK]\n", .{});
+        // Cleanup
+        std.fs.cwd().deleteTree(data_dir) catch {};
+
+        var db = try DB.init(ticker, data_dir, allocator, .{});
+        defer db.deinit();
+
+        const num_records = 1_000_000;
+        try stdout.print("Generating {d} records...\n", .{num_records});
+
+        // Batch write for speed
+        var i: usize = 0;
+        while (i < num_records) : (i += 1) {
+            try db.append(.{
+                .timestamp = @intCast(i * 1000), // 1ms intervals
+                .usd = @floatFromInt(i),
+                .volume = @floatFromInt(i),
+            });
+        }
+        try db.flush();
+
+        try stdout.print("Running 10,000 random range queries...\n", .{});
+
+        var latencies = try allocator.alloc(u64, 10_000);
+        defer allocator.free(latencies);
+
+        var rng = std.Random.DefaultPrng.init(0);
+        const random = rng.random();
+
+        var timer = try std.time.Timer.start();
+        const start_time = timer.read();
+
+        var q: usize = 0;
+        while (q < 10_000) : (q += 1) {
+            // Random start between 0 and num_records - 1000
+            const start_idx = random.intRangeAtMost(usize, 0, num_records - 1000);
+            const range_len = random.intRangeAtMost(usize, 10, 1000); // Query 10 to 1000 records
+
+            const start_ts = @as(i64, @intCast(start_idx * 1000));
+            const end_ts = start_ts + @as(i64, @intCast(range_len * 1000));
+
+            const op_start = timer.read();
+            const res = try db.query(start_ts, end_ts, allocator);
+            const op_end = timer.read();
+            allocator.free(res);
+
+            latencies[q] = op_end - op_start;
+        }
+
+        const total_time_ns = timer.read() - start_time;
+        const total_time_s = @as(f64, @floatFromInt(total_time_ns)) / 1_000_000_000.0;
+        const qps = 10_000.0 / total_time_s;
+
+        // Calculate Latency Stats
+        std.mem.sort(u64, latencies, {}, std.sort.asc(u64));
+
+        var sum: u128 = 0;
+        for (latencies) |lat| sum += lat;
+        const mean = @as(f64, @floatFromInt(sum)) / @as(f64, @floatFromInt(latencies.len));
+        const p50 = latencies[latencies.len / 2];
+        const p99 = latencies[(latencies.len * 99) / 100];
+
+        try stdout.print("Throughput: {d:.2} queries/sec\n", .{qps});
+        try stdout.print("Latency (Mean): {d:.2} ns\n", .{mean});
+        try stdout.print("Latency (p50):  {d} ns\n", .{p50});
+        try stdout.print("Latency (p99):  {d} ns\n", .{p99});
+    }
+
     // --- FLUSH-ON-WRITE BENCHMARK ---
     {
         try stdout.print("\n[FLUSH-ON-WRITE BENCHMARK]\n", .{});

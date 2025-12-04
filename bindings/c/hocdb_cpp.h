@@ -164,6 +164,25 @@ public:
             return std::make_pair(nullptr, 0);
         }
         return std::make_pair(data, len);
+        return std::make_pair(data, len);
+    }
+
+    /**
+     * @brief Query records in a time range
+     * @param start_ts Start timestamp
+     * @param end_ts End timestamp
+     * @return std::pair containing pointer to raw bytes and total length in bytes
+     */
+    std::pair<void*, size_t> query(int64_t start_ts, int64_t end_ts) {
+        size_t len = 0;
+        void* data = hocdb_query(handle_, start_ts, end_ts, &len);
+        if (!data && len > 0) {
+             throw Exception("Failed to query data from HOCDB");
+        }
+        if (!data && len == 0) {
+            return std::make_pair(nullptr, 0);
+        }
+        return std::make_pair(data, len);
     }
 
     /**
@@ -314,6 +333,19 @@ public:
 template<typename T>
 inline DataBuffer<T> load_with_raii(Database& db) {
     auto [data, len] = db.load();
+    return DataBuffer<T>(data, len, db);
+}
+
+/**
+ * @brief Convenience function to query data with automatic memory management
+ * @param db Database instance
+ * @param start_ts Start timestamp
+ * @param end_ts End timestamp
+ * @return DataBuffer RAII wrapper around the loaded data
+ */
+template<typename T>
+inline DataBuffer<T> query_with_raii(Database& db, int64_t start_ts, int64_t end_ts) {
+    auto [data, len] = db.query(start_ts, end_ts);
     return DataBuffer<T>(data, len, db);
 }
 

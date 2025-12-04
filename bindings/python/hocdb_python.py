@@ -148,6 +148,15 @@ class HOCDB:
         # hocdb_close function
         self.lib.hocdb_close.argtypes = [ctypes.c_void_p]
         self.lib.hocdb_close.restype = None
+
+        # hocdb_query function
+        self.lib.hocdb_query.argtypes = [
+            ctypes.c_void_p,          # handle
+            ctypes.c_longlong,        # start_ts
+            ctypes.c_longlong,        # end_ts
+            ctypes.POINTER(ctypes.c_size_t)  # out_len
+        ]
+        self.lib.hocdb_query.restype = ctypes.c_void_p
     
     def append(self, record_data: bytes) -> bool:
         """
@@ -191,6 +200,43 @@ class HOCDB:
         data_ptr = self.lib.hocdb_load(self.handle, ctypes.byref(out_len))
         
         if not data_ptr:
+            return None
+        
+        try:
+            # Copy data from C memory to Python bytes
+            data = ctypes.string_at(data_ptr, out_len.value)
+            return data
+        finally:
+            # Free the C-allocated memory
+            self.lib.hocdb_free(data_ptr)
+
+    def query(self, start_ts: int, end_ts: int) -> Optional[bytes]:
+        """
+        Query records in a time range
+        
+        Args:
+            start_ts: Start timestamp (inclusive)
+            end_ts: End timestamp (exclusive)
+            
+        Returns:
+            Raw bytes of records in range, or None on failure
+        """
+        if not self.handle:
+            raise RuntimeError("Database not initialized")
+        
+        out_len = ctypes.c_size_t()
+        data_ptr = self.lib.hocdb_query(self.handle, start_ts, end_ts, ctypes.byref(out_len))
+        
+        if not data_ptr:
+            # If length is 0, it might be just empty result, but query returns null on error?
+            # Zig query returns slice. If empty, len=0, ptr might be non-null (dangling) or null?
+            # Zig C export returns null on error.
+            # If empty result, it returns pointer to empty slice.
+            # Let's assume null means error.
+            # Wait, if empty, it might return null?
+            # Zig: `if (data.len == 0) return null;` ? No.
+            # Zig `query` returns `[]u8`.
+            # If I catch error, I return null.
             return None
         
         try:

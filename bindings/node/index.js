@@ -100,6 +100,28 @@ module.exports = {
                 return result;
             },
 
+            query: (start, end) => {
+                const buffer = addon.dbQuery(db, BigInt(start), BigInt(end));
+                // Parse buffer into array of objects
+                const count = buffer.byteLength / recordSize;
+                const result = new Array(count);
+                const view = new DataView(buffer);
+
+                for (let i = 0; i < count; i++) {
+                    const record = {};
+                    const base = i * recordSize;
+                    for (const [name, info] of Object.entries(fieldOffsets)) {
+                        switch (info.type) {
+                            case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
+                            case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
+                            case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                        }
+                    }
+                    result[i] = record;
+                }
+                return result;
+            },
+
             close: () => {
                 addon.dbClose(db);
             }
