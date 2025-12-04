@@ -22,7 +22,7 @@ pub fn main() !void {
 
     // Write data
     {
-        var db = try DB.init(ticker, data_dir);
+        var db = try DB.init(ticker, data_dir, std.heap.page_allocator, .{});
         defer db.deinit();
 
         const now = std.time.timestamp();
@@ -41,7 +41,7 @@ pub fn main() !void {
 
     // Load data
     {
-        var db = try DB.init(ticker, data_dir);
+        var db = try DB.init(ticker, data_dir, std.heap.page_allocator, .{});
         defer db.deinit();
 
         std.debug.print("\nLoading data points back into memory...\n", .{});

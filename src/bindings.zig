@@ -1,14 +1,10 @@
 const std = @import("std");
 const hocdb = @import("hocdb");
 
-// Define the data structure we are exposing
-const TradeData = struct {
-    timestamp: i64,
-    usd: f64,
-    volume: f64,
-};
+// We no longer use a fixed TradeData struct.
+// Instead we use DynamicTimeSeriesDB directly.
 
-const DB = hocdb.TimeSeriesDB(TradeData);
+const DB = hocdb.DynamicTimeSeriesDB;
 
 // --- N-API Definitions (Manual) ---
 const napi_env = *anyopaque;
@@ -86,6 +82,12 @@ extern "c" fn napi_create_external(env: napi_env, data: *anyopaque, finalize_cb:
 extern "c" fn napi_get_value_external(env: napi_env, value: napi_value, result: *?*anyopaque) napi_status;
 extern "c" fn napi_throw_error(env: napi_env, code: ?[*:0]const u8, msg: [*:0]const u8) napi_status;
 extern "c" fn napi_create_external_arraybuffer(env: napi_env, external_data: *anyopaque, byte_length: usize, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
+extern "c" fn napi_typeof(env: napi_env, value: napi_value, result: *napi_valuetype) napi_status;
+extern "c" fn napi_get_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, result: *napi_value) napi_status;
+extern "c" fn napi_get_value_bool(env: napi_env, value: napi_value, result: *bool) napi_status;
+extern "c" fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *napi_value) napi_status;
+extern "c" fn napi_get_array_length(env: napi_env, value: napi_value, result: *u32) napi_status;
+extern "c" fn napi_get_buffer_info(env: napi_env, value: napi_value, data: *?*anyopaque, length: *usize) napi_status;
 
 // --- Helper Functions ---
 
@@ -94,12 +96,6 @@ fn throwError(env: napi_env, msg: []const u8) napi_value {
     defer std.heap.c_allocator.free(msg_z);
     _ = napi_throw_error(env, null, msg_z);
     return null;
-}
-
-fn getArgCount(env: napi_env, info: napi_callback_info) usize {
-    var argc: usize = 0;
-    _ = napi_get_cb_info(env, info, &argc, null, null, null);
-    return argc;
 }
 
 fn getArgs(env: napi_env, info: napi_callback_info, comptime N: usize) ![N]napi_value {
@@ -112,55 +108,134 @@ fn getArgs(env: napi_env, info: napi_callback_info, comptime N: usize) ![N]napi_
 
 // --- Implementation ---
 
-// dbInit(ticker: string, path: string): external
+// dbInit(ticker: string, path: string, schema: object[], config?: object): external
 fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
-    const args = getArgs(env, info, 2) catch return throwError(env, "Expected 2 arguments: ticker, path");
+    const max_args = 4;
+    var argc: usize = max_args;
+    var args: [max_args]napi_value = undefined;
+    if (napi_get_cb_info(env, info, &argc, &args, null, null) != .ok) {
+        return throwError(env, "Failed to parse arguments");
+    }
 
-    // Get Ticker
+    if (argc < 3) {
+        return throwError(env, "Expected at least 3 arguments: ticker, path, schema");
+    }
+
+    // Parse Ticker
     var ticker_len: usize = 0;
-    _ = napi_get_value_string_utf8(env, args[0], null, 0, &ticker_len);
+    if (napi_get_value_string_utf8(env, args[0], null, 0, &ticker_len) != .ok) return throwError(env, "Invalid ticker");
     const ticker = std.heap.c_allocator.alloc(u8, ticker_len + 1) catch return throwError(env, "OOM");
     defer std.heap.c_allocator.free(ticker);
-    _ = napi_get_value_string_utf8(env, args[0], ticker.ptr, ticker_len + 1, null);
+    if (napi_get_value_string_utf8(env, args[0], ticker.ptr, ticker_len + 1, null) != .ok) return throwError(env, "Failed to get ticker");
 
-    // Get Path
+    // Parse Path
     var path_len: usize = 0;
-    _ = napi_get_value_string_utf8(env, args[1], null, 0, &path_len);
+    if (napi_get_value_string_utf8(env, args[1], null, 0, &path_len) != .ok) return throwError(env, "Invalid path");
     const path = std.heap.c_allocator.alloc(u8, path_len + 1) catch return throwError(env, "OOM");
     defer std.heap.c_allocator.free(path);
-    _ = napi_get_value_string_utf8(env, args[1], path.ptr, path_len + 1, null);
+    if (napi_get_value_string_utf8(env, args[1], path.ptr, path_len + 1, null) != .ok) return throwError(env, "Failed to get path");
 
-    // Init DB
-    const db_ptr = std.heap.c_allocator.create(DB) catch return throwError(env, "OOM");
-    db_ptr.* = DB.init(ticker[0..ticker_len], path[0..path_len]) catch |err| {
+    // Parse Schema
+    // Schema is an array of objects: [{name: "ts", type: "i64"}, ...]
+    var schema_len: u32 = 0;
+    if (napi_get_array_length(env, args[2], &schema_len) != .ok) return throwError(env, "Invalid schema array");
+
+    const fields = std.heap.c_allocator.alloc(hocdb.FieldInfo, schema_len) catch return throwError(env, "OOM");
+    // We need to keep the field names alive? No, DynamicTimeSeriesDB copies them?
+    // Wait, Schema struct has `[]const FieldInfo`, and FieldInfo has `[]const u8`.
+    // DynamicTimeSeriesDB computes hash from them but does NOT copy them for storage.
+    // It only uses them during init to compute hash and offsets.
+    // So we can free them after init.
+
+    var i: u32 = 0;
+    while (i < schema_len) : (i += 1) {
+        var element: napi_value = undefined;
+        if (napi_get_element(env, args[2], i, &element) != .ok) return throwError(env, "Failed to get schema element");
+
+        // Get name
+        var name_val: napi_value = undefined;
+        if (napi_get_named_property(env, element, "name", &name_val) != .ok) return throwError(env, "Missing name in schema");
+        var name_len: usize = 0;
+        if (napi_get_value_string_utf8(env, name_val, null, 0, &name_len) != .ok) return throwError(env, "Invalid name");
+        const name = std.heap.c_allocator.alloc(u8, name_len + 1) catch return throwError(env, "OOM");
+        if (napi_get_value_string_utf8(env, name_val, name.ptr, name_len + 1, null) != .ok) return throwError(env, "Failed to get name");
+
+        // Get type
+        var type_val: napi_value = undefined;
+        if (napi_get_named_property(env, element, "type", &type_val) != .ok) return throwError(env, "Missing type in schema");
+        var type_str_len: usize = 0;
+        if (napi_get_value_string_utf8(env, type_val, null, 0, &type_str_len) != .ok) return throwError(env, "Invalid type");
+        const type_str = std.heap.c_allocator.alloc(u8, type_str_len + 1) catch return throwError(env, "OOM");
+        defer std.heap.c_allocator.free(type_str);
+        if (napi_get_value_string_utf8(env, type_val, type_str.ptr, type_str_len + 1, null) != .ok) return throwError(env, "Failed to get type");
+
+        const f_type: hocdb.FieldType = if (std.mem.eql(u8, type_str[0..type_str_len], "i64")) .i64 else if (std.mem.eql(u8, type_str[0..type_str_len], "f64")) .f64 else if (std.mem.eql(u8, type_str[0..type_str_len], "u64")) .u64 else return throwError(env, "Unsupported type");
+
+        fields[i] = .{ .name = name[0..name_len], .type = f_type };
+    }
+    defer {
+        for (fields) |f| std.heap.c_allocator.free(f.name.ptr[0 .. f.name.len + 1]); // +1 for null terminator we allocated
+        std.heap.c_allocator.free(fields);
+    }
+
+    // Parse Config
+    var config = DB.Config{};
+    if (argc >= 4) {
+        // ... config parsing logic (same as before) ...
+        var type_result: napi_valuetype = undefined;
+        if (napi_typeof(env, args[3], &type_result) == .ok and type_result == .object) {
+            var max_size_val: napi_value = undefined;
+            if (napi_get_named_property(env, args[3], "max_file_size", &max_size_val) == .ok) {
+                var val: i64 = 0;
+                if (napi_get_value_int64(env, max_size_val, &val) == .ok) config.max_file_size = @intCast(val);
+            }
+            var overwrite_val: napi_value = undefined;
+            if (napi_get_named_property(env, args[3], "overwrite_on_full", &overwrite_val) == .ok) {
+                var val: bool = false;
+                if (napi_get_value_bool(env, overwrite_val, &val) == .ok) config.overwrite_on_full = val;
+            }
+            var flush_val: napi_value = undefined;
+            if (napi_get_named_property(env, args[3], "flush_on_write", &flush_val) == .ok) {
+                var val: bool = false;
+                if (napi_get_value_bool(env, flush_val, &val) == .ok) config.flush_on_write = val;
+            }
+        }
+    }
+
+    const schema = hocdb.Schema{ .fields = fields };
+
+    const db_ptr = std.heap.c_allocator.create(DB) catch return throwError(env, "Allocation failed");
+    db_ptr.* = DB.init(ticker[0..ticker_len], path[0..path_len], std.heap.c_allocator, schema, config) catch |err| {
         std.heap.c_allocator.destroy(db_ptr);
         return throwError(env, @errorName(err));
     };
+    db_ptr.initWriter();
 
-    // Wrap in External
     var result: napi_value = undefined;
     _ = napi_create_external(env, db_ptr, null, null, &result);
     return result;
 }
 
-// dbAppend(db: external, timestamp: number, usd: number, volume: number): void
+// dbAppend(db: external, buffer: ArrayBuffer): void
 fn dbAppend(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
-    const args = getArgs(env, info, 4) catch return throwError(env, "Expected 4 arguments");
+    const args = getArgs(env, info, 2) catch return throwError(env, "Expected 2 arguments");
 
     var db_ptr: ?*anyopaque = null;
     _ = napi_get_value_external(env, args[0], &db_ptr);
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
 
-    var timestamp: i64 = 0;
-    _ = napi_get_value_int64(env, args[1], &timestamp);
+    var data_ptr: ?*anyopaque = null;
+    var data_len: usize = 0;
+    if (napi_get_buffer_info(env, args[1], &data_ptr, &data_len) != .ok) {
+        // Try typed array? Or just assume buffer?
+        // Node.js Buffer is Uint8Array.
+        // napi_get_buffer_info works for Buffer.
+        return throwError(env, "Invalid data buffer");
+    }
 
-    var usd: f64 = 0;
-    _ = napi_get_value_double(env, args[2], &usd);
+    const data = @as([*]const u8, @ptrCast(data_ptr.?))[0..data_len];
 
-    var volume: f64 = 0;
-    _ = napi_get_value_double(env, args[3], &volume);
-
-    db.append(.{ .timestamp = timestamp, .usd = usd, .volume = volume }) catch |err| {
+    db.append(data) catch |err| {
         return throwError(env, @errorName(err));
     };
 
@@ -171,18 +246,6 @@ fn dbAppend(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
 fn freeData(env: napi_env, data: *anyopaque, hint: *anyopaque) callconv(.c) void {
     _ = env;
     _ = hint;
-    // We don't need to cast to slice_ptr if we just free data.
-    // const slice_ptr = @as([*]TradeData, @ptrCast(@alignCast(data)));
-    // We don't know the length here to pass to free, but we used c_allocator.
-    // Wait, DB.load uses 'allocator' passed to it.
-    // If we use c_allocator in dbLoad, we can use free.
-    // But Zig allocator interface requires length for free.
-    // We should probably use a struct wrapper or just use standard malloc/free if we want to be safe with void*.
-    // Or we can store the slice metadata in the hint?
-    // Let's use the hint to store the allocator? No, we need the slice.
-
-    // Better approach: Use std.heap.c_allocator for load in dbLoad.
-    // Then we can use std.c.free(data).
     std.c.free(data);
 }
 
@@ -209,7 +272,7 @@ fn dbLoad(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
 
     // Create External ArrayBuffer
     var result: napi_value = undefined;
-    const byte_length = data.len * @sizeOf(TradeData);
+    const byte_length = data.len;
 
     // We pass 'data.ptr' as the data.
     // We pass 'freeData' as finalizer.
@@ -249,41 +312,90 @@ export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value
 
 // --- C-ABI Exports (for Bun FFI / Python / Rust) ---
 
-export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]const u8, path_len: usize) ?*anyopaque {
+pub const CField = extern struct {
+    name: [*:0]const u8,
+    type: c_int, // 1=i64, 2=f64, 3=u64
+};
+
+export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]const u8, path_len: usize, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int) ?*anyopaque {
     const ticker = ticker_ptr[0..ticker_len];
     const path = path_ptr[0..path_len];
 
-    // We must copy the strings because the caller might free them
-    // But DB.init copies them internally? No, DB.init expects slices.
-    // DB.init stores the paths? Let's check root.zig.
-    // DB.init(ticker, path) calls fs.cwd().makePath(path) and stores ticker/path in struct?
-    // TimeSeriesDB struct has: ticker: []const u8, root_dir: []const u8.
-    // And init does: return Self { .ticker = ticker, .root_dir = root_dir ... }
-    // So it stores the SLICES. It does NOT copy the string data.
-    // This is dangerous if passed from C/FFI where strings are temporary.
-    // We MUST duplicate them here.
+    // Convert C schema to Zig schema
+    const fields = std.heap.c_allocator.alloc(hocdb.FieldInfo, schema_len) catch return null;
+    var i: usize = 0;
+    while (i < schema_len) : (i += 1) {
+        const c_field = schema_ptr[i];
+        const name_len = std.mem.len(c_field.name);
+        const name = std.heap.c_allocator.alloc(u8, name_len) catch {
+            // Clean up previously allocated names if OOM
+            var j: usize = 0;
+            while (j < i) : (j += 1) {
+                std.heap.c_allocator.free(fields[j].name);
+            }
+            std.heap.c_allocator.free(fields);
+            return null;
+        };
+        @memcpy(name, c_field.name[0..name_len]);
+
+        const f_type: hocdb.FieldType = switch (c_field.type) {
+            1 => .i64,
+            2 => .f64,
+            3 => .u64,
+            else => {
+                std.heap.c_allocator.free(name); // Free current name
+                var j: usize = 0; // Free previous names
+                while (j < i) : (j += 1) {
+                    std.heap.c_allocator.free(fields[j].name);
+                }
+                std.heap.c_allocator.free(fields); // Free fields array
+                return null;
+            },
+        };
+        fields[i] = .{ .name = name, .type = f_type };
+    }
+    // We leak names here because we don't have a clean way to free them in this function after init?
+    // Actually init doesn't take ownership. So we should free them.
+    defer {
+        for (fields) |f| std.heap.c_allocator.free(f.name);
+        std.heap.c_allocator.free(fields);
+    }
+
+    var config = DB.Config{};
+    if (max_size > 0) config.max_file_size = @intCast(max_size);
+    config.overwrite_on_full = (overwrite != 0);
+    config.flush_on_write = (flush != 0);
 
     const ticker_dupe = std.heap.c_allocator.dupe(u8, ticker) catch return null;
-    const path_dupe = std.heap.c_allocator.dupe(u8, path) catch return null;
+    const path_dupe = std.heap.c_allocator.dupe(u8, path) catch {
+        std.heap.c_allocator.free(ticker_dupe);
+        return null;
+    };
 
-    const db_ptr = std.heap.c_allocator.create(DB) catch return null;
-    db_ptr.* = DB.init(ticker_dupe, path_dupe) catch {
+    const schema = hocdb.Schema{ .fields = fields };
+
+    const db_ptr = std.heap.c_allocator.create(DB) catch {
+        std.heap.c_allocator.free(ticker_dupe);
+        std.heap.c_allocator.free(path_dupe);
+        return null;
+    };
+    db_ptr.* = DB.init(ticker_dupe, path_dupe, std.heap.c_allocator, schema, config) catch {
         std.heap.c_allocator.free(ticker_dupe);
         std.heap.c_allocator.free(path_dupe);
         std.heap.c_allocator.destroy(db_ptr);
         return null;
     };
+    db_ptr.initWriter();
 
-    // DB.init doesn't store the strings, so we can free them now
     std.heap.c_allocator.free(ticker_dupe);
     std.heap.c_allocator.free(path_dupe);
 
     return db_ptr;
 }
 
-export fn hocdb_append(db_ptr: *anyopaque, timestamp: i64, usd: f64, volume: f64) c_int {
+export fn hocdb_append(db_ptr: *anyopaque, data_ptr: [*]const u8, data_len: usize) c_int {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    db.append(.{ .timestamp = timestamp, .usd = usd, .volume = volume }) catch return -1;
+    db.append(data_ptr[0..data_len]) catch return -1;
     return 0;
 }
 
@@ -293,9 +405,9 @@ export fn hocdb_flush(db_ptr: *anyopaque) c_int {
     return 0;
 }
 
-export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]TradeData {
+export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    // Use C allocator so caller can free with free()
+    db.flush() catch return null;
     const data = db.load(std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
@@ -305,4 +417,10 @@ export fn hocdb_close(db_ptr: *anyopaque) void {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.deinit();
     std.heap.c_allocator.destroy(db);
+}
+
+export fn hocdb_free(ptr: ?*anyopaque) void {
+    if (ptr) |p| {
+        std.c.free(p);
+    }
 }

@@ -5,12 +5,21 @@ zig-out/
 *.so
 *.dylib
 *.dll
+bindings/python/__pycache__/
 
 # Temporary files
 .DS_Store
 Thumbs.db
 *.tmp
 *.temp
+# C/C++ artifacts
+c_test_bench
+cpp_example
+cpp_test
+
+# Test data directories
+b_*_test_data
+test_binaries/
 
 # IDE files
 .vscode/
@@ -34,6 +43,10 @@ data/
 bench_data/
 b_node_test_data/
 b_bun_test_data/
+b_c_test_data/
+b_cpp_test_data/
+b_python_test_data/
+bindings/python/b_python_test_data/
 node_modules/
 *.node
 

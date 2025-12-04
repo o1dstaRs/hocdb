@@ -190,4 +190,41 @@ pub fn build(b: *std.Build) void {
 
     const lib_step = b.step("bindings", "Build Node.js bindings");
     lib_step.dependOn(&lib_install.step);
+
+    // --- C/C++ Bindings ---
+    // Create library for C bindings
+    const c_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "hocdb_c",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/c_bindings.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    c_lib.linkLibC();
+    c_lib.root_module.addImport("hocdb", mod);
+
+    const c_lib_install = b.addInstallArtifact(c_lib, .{});
+
+    // Install header files manually using installFile
+    const install_headers_step = b.addInstallFile(b.path("bindings/c/hocdb.h"), "include/hocdb.h");
+    const install_cpp_headers_step = b.addInstallFile(b.path("bindings/c/hocdb_cpp.h"), "include/hocdb_cpp.h");
+
+    // Main C bindings step
+    const c_bindings_step = b.step("c-bindings", "Build C/C++ bindings");
+    c_bindings_step.dependOn(&c_lib_install.step);
+    c_bindings_step.dependOn(&install_headers_step.step);
+    c_bindings_step.dependOn(&install_cpp_headers_step.step);
+
+    // Instructions for building C/C++ examples - not built by default with Zig
+    // Users can build them separately using standard C/C++ tools
+
+    // --- Python Bindings ---
+    // Python bindings use the same C library as other C-compatible bindings
+    const python_bindings_step = b.step("python-bindings", "Build Python bindings (requires C bindings)");
+    python_bindings_step.dependOn(&c_lib_install.step); // Python bindings depend on C library
+    python_bindings_step.dependOn(&install_headers_step.step); // Python bindings might need headers for development
 }
+

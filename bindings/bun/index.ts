@@ -6,11 +6,11 @@ const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb.${
 
 const { symbols } = dlopen(libPath, {
     hocdb_init: {
-        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.i64, FFIType.i32, FFIType.i32],
         returns: FFIType.ptr,
     },
     hocdb_append: {
-        args: [FFIType.ptr, FFIType.i64, FFIType.f64, FFIType.f64],
+        args: [FFIType.ptr, FFIType.ptr, FFIType.u64],
         returns: FFIType.i32,
     },
     hocdb_flush: {
@@ -25,22 +25,84 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr],
         returns: FFIType.void,
     },
+    hocdb_free: {
+        args: [FFIType.ptr],
+        returns: FFIType.void,
+    },
 });
 
 const encoder = new TextEncoder();
 
-export class HOCDB {
-    private db: any;
+export interface DBConfig {
+    max_file_size?: number;
+    overwrite_on_full?: boolean;
+    flush_on_write?: boolean;
+}
 
-    constructor(ticker: string, path: string) {
+export interface FieldDef {
+    name: string;
+    type: 'i64' | 'f64' | 'u64';
+}
+
+export class HOCDB {
+    db: any;
+    schema: FieldDef[];
+    recordSize: number;
+    fieldOffsets: Record<string, { offset: number, type: string }>;
+    nameBuffers: Uint8Array[];
+    // Actually we need to keep the name strings alive during init call.
+    // But hocdb_init duplicates them. So we don't need to keep them after init.
+
+    constructor(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
         const tickerBytes = encoder.encode(ticker);
         const pathBytes = encoder.encode(path);
+
+        // Process schema
+        this.schema = schema;
+        this.recordSize = 0;
+        this.fieldOffsets = {};
+
+        // Prepare schema for C-ABI
+        const schemaBuffer = new Uint8Array(schema.length * 16);
+        const schemaView = new DataView(schemaBuffer.buffer);
+
+        this.nameBuffers = [];
+
+        for (let i = 0; i < schema.length; i++) {
+            const field = schema[i];
+            this.fieldOffsets[field.name] = { offset: this.recordSize, type: field.type };
+
+            let typeCode;
+            let size;
+            switch (field.type) {
+                case "i64": typeCode = 1; size = 8; break;
+                case "f64": typeCode = 2; size = 8; break;
+                case "u64": typeCode = 3; size = 8; break;
+                default: throw new Error(`Unsupported field type: ${field.type}`);
+            }
+            this.recordSize += size;
+
+            const nameBytes = encoder.encode(field.name + "\0");
+            this.nameBuffers.push(nameBytes);
+
+            schemaView.setBigUint64(i * 16, BigInt(ptr(nameBytes)), true);
+            schemaView.setInt32(i * 16 + 8, typeCode, true);
+        }
+
+        const maxSize = config.max_file_size ? BigInt(config.max_file_size) : 0n;
+        const overwrite = config.overwrite_on_full === false ? 0 : 1;
+        const flush = config.flush_on_write === true ? 1 : 0;
 
         this.db = symbols.hocdb_init(
             ptr(tickerBytes),
             tickerBytes.length,
             ptr(pathBytes),
-            pathBytes.length
+            pathBytes.length,
+            ptr(schemaBuffer),
+            schema.length,
+            maxSize,
+            overwrite,
+            flush
         );
 
         if (!this.db) {
@@ -48,10 +110,24 @@ export class HOCDB {
         }
     }
 
-    append(timestamp: number | bigint, usd: number, volume: number) {
-        const res = symbols.hocdb_append(this.db, BigInt(timestamp), usd, volume);
+    append(data: Record<string, number | bigint>) {
+        const buffer = new Uint8Array(this.recordSize);
+        const view = new DataView(buffer.buffer);
+
+        for (const [key, value] of Object.entries(data)) {
+            const info = this.fieldOffsets[key];
+            if (!info) continue;
+
+            switch (info.type) {
+                case 'i64': view.setBigInt64(info.offset, BigInt(value), true); break;
+                case 'f64': view.setFloat64(info.offset, Number(value), true); break;
+                case 'u64': view.setBigUint64(info.offset, BigInt(value), true); break;
+            }
+        }
+
+        const res = symbols.hocdb_append(this.db, ptr(buffer), BigInt(this.recordSize));
         if (res !== 0) {
-            throw new Error("Failed to append record");
+            throw new Error("Append failed");
         }
     }
 
@@ -62,46 +138,41 @@ export class HOCDB {
         }
     }
 
-    load(): Float64Array {
-        // We need to pass a pointer to a usize to get the length
+    load(): Record<string, number | bigint>[] {
         const lenPtr = new BigUint64Array(1);
         const dataPtr = symbols.hocdb_load(this.db, ptr(lenPtr));
 
         if (!dataPtr) {
-            throw new Error("Failed to load data");
+            throw new Error("Load failed");
         }
 
-        const len = Number(lenPtr[0]);
-        const byteLen = len * 24; // 24 bytes per record
+        const totalBytes = Number(lenPtr[0]);
+        const buffer = toArrayBuffer(dataPtr, 0, totalBytes);
+        const view = new DataView(buffer);
 
-        // Create a view over the memory (Zero-Copy)
-        // Note: This memory is managed by Zig (c_allocator).
-        // If we want to be safe, we should copy it or ensure it's freed.
-        // The current C-API returns a pointer allocated with c_allocator.
-        // The caller is responsible for freeing it?
-        // Wait, `hocdb_load` uses `db.load(c_allocator)`.
-        // So the returned pointer IS allocated.
-        // We should probably expose a `hocdb_free` to free this memory.
-        // Or just let it leak for this benchmark?
-        // Ideally we should free it.
-        // But Bun FFI doesn't automatically free.
-        // I should add `hocdb_free` to C-API.
-        // For now, let's just use it.
+        const count = totalBytes / this.recordSize;
+        const result = new Array(count);
 
-        // toArrayBuffer creates a copy or view?
-        // "Returns a new ArrayBuffer backed by the same memory."
-        // But if we free the memory in Zig, this buffer becomes invalid.
-        // We need to be careful.
+        for (let i = 0; i < count; i++) {
+            const record: Record<string, number | bigint> = {};
+            const base = i * this.recordSize;
+            for (const [name, info] of Object.entries(this.fieldOffsets)) {
+                switch (info.type) {
+                    case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
+                    case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
+                    case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                }
+            }
+            result[i] = record;
+        }
 
-        // For this binding, we return a Float64Array view.
-        // The user should technically free it, but we didn't expose free.
-        // Let's assume for now we just want to read it.
-
-        return new Float64Array(toArrayBuffer(dataPtr, 0, byteLen));
+        return result;
     }
 
     close() {
-        symbols.hocdb_close(this.db);
-        this.db = null;
+        if (this.db) {
+            symbols.hocdb_close(this.db);
+            this.db = null;
+        }
     }
 }

@@ -32,4 +32,21 @@ export interface HOCDB {
  * @param path Directory path for data
  * @returns Database instance
  */
-export function dbInit(ticker: string, path: string): HOCDB;
+export interface DBConfig {
+    max_file_size?: number; // Default: 2GB
+    overwrite_on_full?: boolean; // Default: true
+    flush_on_write?: boolean;
+}
+
+export interface FieldDef {
+    name: string;
+    type: 'i64' | 'f64' | 'u64';
+}
+
+export interface DBInstance {
+    append(data: Record<string, number | bigint>): void;
+    load(): Record<string, number | bigint>[];
+    close(): void;
+}
+
+export function dbInit(ticker: string, path: string, schema: FieldDef[], config?: DBConfig): DBInstance;

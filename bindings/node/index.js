@@ -33,4 +33,76 @@ try {
 
 const addon = require(nodePath);
 
-module.exports = addon;
+module.exports = {
+    dbInit: (ticker, path, schema, config) => {
+        if (!schema || !Array.isArray(schema)) {
+            throw new Error("Schema must be an array of field definitions");
+        }
+
+        // Validate schema and calculate record size
+        let recordSize = 0;
+        const fieldOffsets = {};
+
+        for (const field of schema) {
+            if (!field.name || !field.type) throw new Error("Invalid field definition");
+            fieldOffsets[field.name] = { offset: recordSize, type: field.type };
+
+            switch (field.type) {
+                case 'i64': recordSize += 8; break;
+                case 'f64': recordSize += 8; break;
+                case 'u64': recordSize += 8; break;
+                default: throw new Error(`Unsupported field type: ${field.type}`);
+            }
+        }
+
+        const db = addon.dbInit(ticker, path, schema, config);
+
+        // Return a wrapper object that handles data packing
+        return {
+            _db: db,
+            _recordSize: recordSize,
+            _fieldOffsets: fieldOffsets,
+
+            append: (data) => {
+                const buffer = Buffer.allocUnsafe(recordSize);
+                for (const [key, value] of Object.entries(data)) {
+                    const info = fieldOffsets[key];
+                    if (!info) continue; // Ignore extra fields? Or throw?
+
+                    switch (info.type) {
+                        case 'i64': buffer.writeBigInt64LE(BigInt(value), info.offset); break;
+                        case 'f64': buffer.writeDoubleLE(Number(value), info.offset); break;
+                        case 'u64': buffer.writeBigUInt64LE(BigInt(value), info.offset); break;
+                    }
+                }
+                addon.dbAppend(db, buffer);
+            },
+
+            load: () => {
+                const buffer = addon.dbLoad(db);
+                // Parse buffer into array of objects
+                const count = buffer.byteLength / recordSize;
+                const result = new Array(count);
+                const view = new DataView(buffer);
+
+                for (let i = 0; i < count; i++) {
+                    const record = {};
+                    const base = i * recordSize;
+                    for (const [name, info] of Object.entries(fieldOffsets)) {
+                        switch (info.type) {
+                            case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
+                            case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
+                            case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                        }
+                    }
+                    result[i] = record;
+                }
+                return result;
+            },
+
+            close: () => {
+                addon.dbClose(db);
+            }
+        };
+    },
+};

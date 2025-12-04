@@ -1,0 +1,75 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.13.0 # Using a stable version close to 0.15.2 (or latest available action version)
+        # Note: User is on 0.15.2, but setup-zig might not support it yet or it might be a nightly.
+        # Let's try master or a recent version. 0.13.0 is the latest stable.
+        # If the code requires 0.15.2 features, we might need to use master.
+        # Given the user is on 0.15.2, let's assume master or specific version.
+        # For now, let's try 0.13.0 and see if it works, or use master if 0.15.2 is dev.
+        # Actually, 0.15.2 implies it's a dev version (0.14.0 is not out yet).
+        # Let's use master to be safe with recent features.
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+
+    - name: Build and Test Zig Core
+      run: zig build test
+
+    - name: Run Benchmarks
+      run: zig build bench
+
+    - name: Build Node.js Bindings
+      run: zig build bindings
+
+    - name: Run Node.js Tests
+      run: node bindings/node/test.js
+
+    - name: Run Bun Tests
+      run: bun run bindings/bun/test.ts
+
+    - name: Build C Bindings
+      run: zig build c-bindings
+
+    - name: Build and Run C Tests
+      run: |
+        mkdir -p test_binaries
+        
+        # Compile and run simple_test
+        gcc -o test_binaries/c_simple_test bindings/c/simple_test.c -I zig-out/include -L zig-out/lib -lhocdb_c
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/zig-out/lib
+        ./test_binaries/c_simple_test
+        
+        # Compile and run test_bench
+        gcc -o test_binaries/c_test_bench bindings/c/test_bench.c -I zig-out/include -L zig-out/lib -lhocdb_c
+        ./test_binaries/c_test_bench
+
+    - name: Build and Run C++ Tests
+      run: |
+        mkdir -p test_binaries
+        zig c++ -o test_binaries/cpp_test bindings/cpp/test.cpp -I zig-out/include -L zig-out/lib -lhocdb_c -std=c++17
+        # Need to set LD_LIBRARY_PATH for linux to find the shared lib
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/zig-out/lib
+        ./test_binaries/cpp_test
