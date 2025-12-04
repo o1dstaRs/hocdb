@@ -1,0 +1,12 @@
+{
+    "name": "hocdb-bun",
+    "version": "0.1.0",
+    "description": "High-Performance Time-Series Database Bindings for Bun",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "test": "bun run test.ts"
+    },
+    "author": "o1dstaRs gaming",
+    "license": "MIT"
+}

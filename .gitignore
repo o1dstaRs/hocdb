@@ -1,0 +1,49 @@
+# Zig build artifacts
+.zig-cache
+zig-cache/
+zig-out/
+*.so
+*.dylib
+*.dll
+
+# Temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Data
+data/
+bench_data/
+b_node_test_data/
+b_bun_test_data/
+node_modules/
+*.node
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Icon?
+iTunes_Control/
+Thumbs.db

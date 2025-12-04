@@ -1,0 +1,12 @@
+{
+    "name": "hocdb-node",
+    "version": "0.1.0",
+    "description": "hocdb Bindings for Node.js",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "scripts": {
+        "test": "node test.js"
+    },
+    "author": "o1dstaRs gaming",
+    "license": "MIT"
+}
