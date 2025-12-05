@@ -1,6 +1,8 @@
 package hocdb
 
 import (
+	"encoding/binary"
+	"math"
 	"os"
 	"testing"
 )
@@ -184,6 +186,70 @@ func TestQueryFiltering(t *testing.T) {
 	if len(data) != 2*recordSize {
 		t.Errorf("Expected %d bytes (2 records), got %d", 2*recordSize, len(data))
 	}
+}
+
+func TestAutoIncrement(t *testing.T) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "value", Type: TypeF64},
+	}
+
+	testDir := "../../b_go_test_auto_inc"
+	os.RemoveAll(testDir)
+	os.MkdirAll(testDir, 0755)
+	defer os.RemoveAll(testDir)
+
+	// 1. Initialize with AutoIncrement = true
+	db, err := New("TEST_AUTO_INC", testDir, schema, Options{AutoIncrement: true})
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+
+	// Append 10 records with dummy timestamp
+	for i := 0; i < 10; i++ {
+		record, _ := CreateRecordBytes(schema, int64(0), float64(i))
+		err := db.Append(record)
+		if err != nil {
+			t.Fatalf("Failed to append: %v", err)
+		}
+	}
+	db.Close()
+
+	// 2. Reopen and verify
+	db, err = New("TEST_AUTO_INC", testDir, schema, Options{AutoIncrement: true})
+	if err != nil {
+		t.Fatalf("Failed to reopen DB: %v", err)
+	}
+
+	data, err := db.Load()
+	if err != nil {
+		t.Fatalf("Failed to load: %v", err)
+	}
+
+	recordSize := 16 // 8 + 8
+	count := len(data) / recordSize
+	if count != 10 {
+		t.Errorf("Expected 10 records, got %d", count)
+	}
+
+	// Verify content
+	// We need to parse bytes manually or use a helper.
+	// Go doesn't have easy struct casting from bytes like C.
+	// We can use binary.LittleEndian.
+	for i := 0; i < 10; i++ {
+		offset := i * recordSize
+		ts := int64(binary.LittleEndian.Uint64(data[offset : offset+8]))
+		valBits := binary.LittleEndian.Uint64(data[offset+8 : offset+16])
+		val := math.Float64frombits(valBits)
+
+		if ts != int64(i+1) {
+			t.Errorf("Record %d: Expected timestamp %d, got %d", i, i+1, ts)
+		}
+		if val != float64(i) {
+			t.Errorf("Record %d: Expected value %f, got %f", i, float64(i), val)
+		}
+	}
+	db.Close()
 }
 
 func BenchmarkAppend(b *testing.B) {

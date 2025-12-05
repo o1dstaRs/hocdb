@@ -39,6 +39,14 @@ bindings/c/test_cpp
 rm bindings/c/test_cpp
 echo "✅ C++ Tests passed"
 
+# 6. Run C Recovery Test
+echo ""
+echo "[6/6] Running C Recovery Test..."
+clang -o bindings/c/test_auto_inc_recovery bindings/c/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+./bindings/c/test_auto_inc_recovery
+rm bindings/c/test_auto_inc_recovery
+echo "✅ C Recovery Test passed"
+
 echo ""
 echo "========================================"
 echo "🎉 ALL BINDINGS VERIFIED SUCCESSFULLY!"

@@ -36,6 +36,7 @@ export interface DBConfig {
     max_file_size?: number; // Default: 2GB
     overwrite_on_full?: boolean; // Default: true
     flush_on_write?: boolean;
+    auto_increment?: boolean;
 }
 
 export interface FieldDef {

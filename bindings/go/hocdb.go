@@ -111,6 +111,7 @@ type Options struct {
 	MaxFileSize   int64
 	OverwriteFull bool
 	FlushOnWrite  bool
+	AutoIncrement bool
 }
 
 // DB represents a connection to an HOCDB database
@@ -151,6 +152,10 @@ func New(ticker, path string, schema []Field, options Options) (*DB, error) {
 	if options.FlushOnWrite {
 		flushOnWrite = 1
 	}
+	autoIncrement := C.int(0)
+	if options.AutoIncrement {
+		autoIncrement = 1
+	}
 
 	// Call C API
 	handle := C.hocdb_init(
@@ -161,6 +166,7 @@ func New(ticker, path string, schema []Field, options Options) (*DB, error) {
 		maxFileSize,
 		overwriteOnFull,
 		flushOnWrite,
+		autoIncrement,
 	)
 
 	// Free the C strings we created for schema names

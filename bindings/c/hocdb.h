@@ -32,9 +32,10 @@ typedef void* HOCDBHandle;
  * @param max_file_size Maximum file size (0 for default)
  * @param overwrite_on_full Whether to overwrite when full (1 for true, 0 for false)
  * @param flush_on_write Whether to flush on every write (1 for true, 0 for false)
+ * @param auto_increment Whether to auto-increment timestamp (1 for true, 0 for false)
  * @return Database handle or NULL on failure
  */
-HOCDBHandle hocdb_init(const char* ticker, const char* path, const CField* schema, size_t schema_len, int64_t max_file_size, int overwrite_on_full, int flush_on_write);
+HOCDBHandle hocdb_init(const char* ticker, const char* path, const CField* schema, size_t schema_len, int64_t max_file_size, int overwrite_on_full, int flush_on_write, int auto_increment);
 
 /**
  * Append a raw record to the database

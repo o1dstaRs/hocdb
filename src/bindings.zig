@@ -204,6 +204,11 @@ fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
                 var val: bool = false;
                 if (napi_get_value_bool(env, flush_val, &val) == .ok) config.flush_on_write = val;
             }
+            var auto_inc_val: napi_value = undefined;
+            if (napi_get_named_property(env, args[3], "auto_increment", &auto_inc_val) == .ok) {
+                var val: bool = false;
+                if (napi_get_value_bool(env, auto_inc_val, &val) == .ok) config.auto_increment = val;
+            }
         }
     }
 
@@ -314,7 +319,7 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         return throwError(env, @errorName(err));
     };
 
-    const data = db.query(start, end, allocator) catch |err| {
+    const data = db.query(start, end, &[_]hocdb.Filter{}, allocator) catch |err| {
         return throwError(env, @errorName(err));
     };
 
@@ -435,7 +440,7 @@ pub const CField = extern struct {
     type: c_int, // 1=i64, 2=f64, 3=u64
 };
 
-export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]const u8, path_len: usize, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int) ?*anyopaque {
+export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]const u8, path_len: usize, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int, auto_increment: c_int) ?*anyopaque {
     const ticker = ticker_ptr[0..ticker_len];
     const path = path_ptr[0..path_len];
 
@@ -483,6 +488,7 @@ export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]co
     if (max_size > 0) config.max_file_size = @intCast(max_size);
     config.overwrite_on_full = (overwrite != 0);
     config.flush_on_write = (flush != 0);
+    config.auto_increment = (auto_increment != 0);
 
     const ticker_dupe = std.heap.c_allocator.dupe(u8, ticker) catch return null;
     const path_dupe = std.heap.c_allocator.dupe(u8, path) catch {

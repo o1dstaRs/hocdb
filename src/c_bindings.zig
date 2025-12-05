@@ -19,7 +19,7 @@ pub const CFilter = extern struct {
     val_string: [128]u8,
 };
 
-export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int) ?*anyopaque {
+export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int, auto_increment: c_int) ?*anyopaque {
     std.debug.print("hocdb_init called\n", .{});
     const ticker = std.mem.span(ticker_z);
     const path = std.mem.span(path_z);
@@ -70,6 +70,7 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
     if (max_size > 0) config.max_file_size = @intCast(max_size);
     config.overwrite_on_full = (overwrite != 0);
     config.flush_on_write = (flush != 0);
+    config.auto_increment = (auto_increment != 0);
 
     const ticker_dupe = std.heap.c_allocator.dupe(u8, ticker) catch return null;
     const path_dupe = std.heap.c_allocator.dupe(u8, path) catch {

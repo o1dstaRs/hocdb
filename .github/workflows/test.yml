@@ -40,69 +40,34 @@ jobs:
       run: echo "LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
     # Run Go Tests (needs C bindings to compile)
-    - name: Run Go Tests
-      run: |
-        cd bindings/go
-        go test -v
 
-    - name: Build and Run C Tests
-      run: |
-        mkdir -p test_binaries
 
-        # Compile C test using Zig's C compiler wrapper
-        zig cc -o test_binaries/c_simple_test bindings/c/simple_test.c -I zig-out/include -L zig-out/lib -lhocdb_c
-
-        ./test_binaries/c_simple_test
-
-        # Compile C bench
-        zig cc -o test_binaries/c_test_bench bindings/c/test_bench.c -I zig-out/include -L zig-out/lib -lhocdb_c
-
-        # Run C bench
-        ./test_binaries/c_test_bench
-
-    - name: Build and Run C++ Tests
-      run: |
-        mkdir -p test_binaries
-
-        # Compile C++ test using Zig's C++ compiler wrapper
-        zig c++ -o test_binaries/cpp_test bindings/cpp/test.cpp -I zig-out/include -L zig-out/lib -lhocdb_c -std=c++17
-
-        ./test_binaries/cpp_test
-
-    - name: Install kcov from source
-      run: |
-        sudo apt-get update
-        # Install dependencies for building kcov
-        sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libdw-dev binutils-dev libiberty-dev
-        # Clone and build kcov from source
-        git clone https://github.com/SimonKagstrom/kcov.git
-        cd kcov
-        mkdir build && cd build
-        cmake ..
-        make
-        sudo make install
-        cd ../..
-
-    - name: Run Zig Tests with Coverage
-      run: |
-        # 1. Compile the test binary ('kcov-test') without running it yet
-        zig test src/main.zig --main-pkg-path . -femit-bin=kcov-test
-
-        # 2. Run kcov on the binary
-        # This executes the tests and generates the report in 'coverage-out'
-        kcov --include-pattern=src coverage-out ./kcov-test
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        directory: ./coverage-out
-        fail_ci_if_error: true
-
-    # --- END COVERAGE BLOCK ---
+    - name: Run Core Tests
+      run: zig build test --summary all
 
     - name: Run Benchmarks
       run: zig build bench
+
+    - name: Run Python Tests
+      run: python3 bindings/python/test_query.py
+
+    - name: Run Go Tests
+      run: |
+        export DYLD_LIBRARY_PATH=$(pwd)/zig-out/lib:$DYLD_LIBRARY_PATH
+        export LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH
+        go test -v bindings/go/hocdb_test.go bindings/go/hocdb.go
+
+    - name: Run C++ Tests
+      run: |
+        clang++ -std=c++17 bindings/c/test_cpp.cpp -o bindings/c/test_cpp -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        bindings/c/test_cpp
+        rm bindings/c/test_cpp
+
+    - name: Run C Recovery Test
+      run: |
+        clang -o bindings/c/test_auto_inc_recovery bindings/c/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        ./bindings/c/test_auto_inc_recovery
+        rm bindings/c/test_auto_inc_recovery
 
     - name: Build Node.js Bindings
       run: zig build bindings

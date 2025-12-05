@@ -3,23 +3,29 @@ const root = @import("root.zig");
 const TimeSeriesDB = root.TimeSeriesDB;
 
 test "TimeSeriesDB query usage" {
+    // return; // DISABLED due to flakiness/crash
     const TestStruct = struct {
         timestamp: i64,
         value: f64,
     };
 
     const ticker = "TEST_QUERY";
-    const dir = "test_query_data";
+    var dir_buf_linear: [64]u8 = undefined;
+    const dir_linear = try std.fmt.bufPrint(&dir_buf_linear, "test_query_linear_{x}", .{std.crypto.random.int(u64)});
+    var dir_buf_ring: [64]u8 = undefined;
+    const dir_ring = try std.fmt.bufPrint(&dir_buf_ring, "test_query_ring_{x}", .{std.crypto.random.int(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.fs.cwd().deleteTree(dir_linear) catch |err| if (err != error.FileNotFound) return err;
+    defer std.fs.cwd().deleteTree(dir_linear) catch {};
+    std.fs.cwd().deleteTree(dir_ring) catch |err| if (err != error.FileNotFound) return err;
+    defer std.fs.cwd().deleteTree(dir_ring) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
 
     // 1. Linear Test
     {
-        var db = try DB.init(ticker, dir, std.testing.allocator, .{});
+        var db = try DB.init(ticker, dir_linear, std.testing.allocator, .{});
         defer db.deinit();
 
         try db.append(.{ .timestamp = 100, .value = 1.0 });
@@ -37,30 +43,10 @@ test "TimeSeriesDB query usage" {
         try std.testing.expectEqual(400, res[2].timestamp);
     }
 
-    // Cleanup for next test
-    std.fs.cwd().deleteTree(dir) catch {};
-
     // 2. Ring Buffer Test
     {
         // Small file size to force wrap
-        // Header (4+8=12) + 3 records (16*3=48) = 60 bytes
-        // We want to write 5 records.
-        // 1, 2, 3 -> Full.
-        // 4 -> Overwrites 1.
-        // 5 -> Overwrites 2.
-        // Content: 4, 5, 3 (physically: 4 at 0, 5 at 1, 3 at 2)
-        // Logical: 3, 4, 5 (Wait, 3 is oldest? No)
-        // Write 1, 2, 3. Cursor at end.
-        // Write 4. Cursor at 0+rec_size. Overwrites 1.
-        // Oldest is 2 (at 1). Newest is 4 (at 0).
-        // Wait, if we overwrite 1, 1 is gone.
-        // Records: 4, 2, 3.
-        // Order: 2, 3, 4.
-        // Write 5. Overwrites 2.
-        // Records: 4, 5, 3.
-        // Order: 3, 4, 5.
-
-        var db = try DB.init(ticker, dir, std.testing.allocator, .{ .max_file_size = 60, .overwrite_on_full = true });
+        var db = try DB.init(ticker, dir_ring, std.testing.allocator, .{ .max_file_size = 60, .overwrite_on_full = true });
         defer db.deinit();
 
         try db.append(.{ .timestamp = 100, .value = 1.0 });
@@ -97,16 +83,18 @@ test "TimeSeriesDB query usage" {
 }
 
 test "TimeSeriesDB multiple wrap" {
+    // return; // DISABLED due to flakiness/crash
     const TestStruct = struct {
         timestamp: i64,
         value: f64,
     };
     const ticker = "TEST_QUERY_WRAP";
-    const dir = "test_query_wrap_data";
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_query_wrap_{x}", .{std.crypto.random.int(u64)});
     const DB = TimeSeriesDB(TestStruct);
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
+    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     // 3. Multiple Wrap Test

@@ -80,6 +80,7 @@ pub const DynamicTimeSeriesDB = struct {
         max_file_size: u64 = 2 * 1024 * 1024 * 1024, // 2 GiB default
         overwrite_on_full: bool = true,
         flush_on_write: bool = false,
+        auto_increment: bool = false,
     };
 
     // Magic header: "HOC1"
@@ -171,6 +172,7 @@ pub const DynamicTimeSeriesDB = struct {
     max_file_size: u64,
     overwrite_on_full: bool,
     flush_on_write: bool,
+    auto_increment: bool,
     write_cursor: u64,
     is_wrapped: bool = false,
 
@@ -202,16 +204,33 @@ pub const DynamicTimeSeriesDB = struct {
         const filename = try std.fmt.allocPrint(allocator, "{s}.bin", .{ticker});
         defer allocator.free(filename);
 
-        var file = try dir.createFile(filename, .{
-            .read = true,
-            .truncate = false, // Don't overwrite existing data
-        });
+        var file: std.fs.File = undefined;
+        var retry_count: usize = 0;
+        while (retry_count < 3) : (retry_count += 1) {
+            file = dir.createFile(filename, .{
+                .read = true,
+                .truncate = false, // Don't overwrite existing data
+            }) catch |err| {
+                if (err == error.FileNotFound or err == error.BadPathName or err == error.AccessDenied) {
+                    // Directory might have been deleted or handle invalid?
+                    // Try to reopen directory
+                    dir.close();
+                    dir = try std.fs.cwd().makeOpenPath(dir_path, .{});
+                    continue;
+                }
+                return err;
+            };
+            break;
+        } else {
+            return error.FileNotFound; // Failed after retries
+        }
         errdefer file.close();
 
         // Exclusive lock
         try file.lock(.exclusive);
 
         const stat = try file.stat();
+        // std.debug.print("DEBUG: init file={s} size={d}\n", .{ filename, stat.size });
         var last_timestamp: ?i64 = null;
         var write_cursor: u64 = HEADER_SIZE;
         var is_wrapped = false;
@@ -262,14 +281,107 @@ pub const DynamicTimeSeriesDB = struct {
                 write_cursor = stat.size;
             } else {
                 // Ring buffer / Full file
-                // Simple linear scan for now
-                try file.seekTo(HEADER_SIZE);
-                write_cursor = stat.size; // Default to end if we don't scan
-                if (stat.size >= effective_max_size) {
-                    is_wrapped = true;
+                is_wrapped = true;
+                // Scan to find the latest timestamp and write cursor
+                var max_ts: i64 = std.math.minInt(i64);
+                var max_ts_index: u64 = 0;
+                var found_wrap: bool = false;
+
+                const total_records = (stat.size - HEADER_SIZE) / record_size;
+                var current_ts: i64 = 0;
+                var prev_ts: i64 = std.math.minInt(i64);
+
+                // Use a buffer to read multiple timestamps at once for performance
+                const records_per_batch = 128; // Adjust as needed
+                const batch_size = records_per_batch * record_size;
+                var batch_buf = try allocator.alloc(u8, batch_size);
+                defer allocator.free(batch_buf);
+
+                var rec_idx: u64 = 0;
+                while (rec_idx < total_records) {
+                    const records_to_read = @min(records_per_batch, total_records - rec_idx);
+                    const read_size = records_to_read * record_size;
+
+                    try file.seekTo(HEADER_SIZE + rec_idx * record_size);
+                    const bytes_read_batch = try readAll(file, batch_buf[0..read_size]);
+                    if (bytes_read_batch != read_size) return error.UnexpectedEndOfFile;
+
+                    for (0..records_to_read) |i| {
+                        const offset = i * record_size + ts_offset;
+                        current_ts = std.mem.bytesToValue(i64, batch_buf[offset .. offset + 8]);
+
+                        if ((rec_idx > 0 or i > 0) and current_ts < prev_ts) {
+                            // Found the wrap point!
+                            // prev_ts was the maximum (latest)
+                            max_ts = prev_ts;
+                            max_ts_index = rec_idx + i - 1;
+                            found_wrap = true;
+                            // We can stop scanning if we assume strict monotonicity within the runs
+                            // But to be safe against corruption, maybe scan all?
+                            // For now, let's assume valid ring buffer structure and break.
+                            break;
+                        }
+                        prev_ts = current_ts;
+
+                        // Keep track of the last one seen if we don't find a wrap
+                        if (i == records_to_read - 1) {
+                            max_ts = current_ts;
+                            max_ts_index = rec_idx + i;
+                        }
+                    }
+                    if (found_wrap) break;
+                    rec_idx += records_to_read;
                 }
-                // TODO: Implement scan
+
+                if (found_wrap) {
+                    // write_cursor should be at the record AFTER the one with max_ts
+                    write_cursor = HEADER_SIZE + (max_ts_index + 1) * record_size;
+                    last_timestamp = max_ts;
+                } else {
+                    // Monotonic throughout.
+                    // This implies we just filled the file and haven't wrapped yet, OR we wrapped perfectly to the end?
+                    // If the file is full (>= effective_max_size) and monotonic, it means the latest record is at the end.
+                    // The NEXT write should be at the beginning.
+                    write_cursor = HEADER_SIZE;
+                    last_timestamp = max_ts;
+                }
+
+                // Sanity check
+                if (write_cursor >= stat.size + record_size) {
+                    // Should not happen if logic is correct
+                    write_cursor = HEADER_SIZE;
+                }
+                // If write_cursor is exactly at EOF, and we are in ring mode, it should wrap to HEADER_SIZE
+                if (write_cursor >= stat.size) {
+                    write_cursor = HEADER_SIZE;
+                }
             }
+        }
+
+        // Initialize last_timestamp if auto_increment is enabled
+        if (config.auto_increment) {
+            if (stat.size > HEADER_SIZE) {
+                var last_rec_pos: u64 = 0;
+                // write_cursor points to the NEXT write position.
+                // If we just started, write_cursor is at the end of valid data (linear) or wherever (ring).
+                // If linear and write_cursor > HEADER_SIZE, last record is at write_cursor - record_size.
+                if (write_cursor > HEADER_SIZE) {
+                    last_rec_pos = write_cursor - record_size;
+                } else if (is_wrapped) {
+                    // If wrapped and write_cursor is at HEADER_SIZE (or start), last record is at end of file.
+                    last_rec_pos = effective_max_size - record_size;
+                }
+
+                if (last_rec_pos >= HEADER_SIZE) {
+                    var buf: [8]u8 = undefined;
+                    try file.seekTo(last_rec_pos + ts_offset);
+                    const amt = try readAll(file, &buf);
+                    if (amt == 8) {
+                        last_timestamp = std.mem.bytesToValue(i64, &buf);
+                    }
+                }
+            }
+            if (last_timestamp == null) last_timestamp = 0;
         }
 
         // Seek to write cursor
@@ -294,6 +406,7 @@ pub const DynamicTimeSeriesDB = struct {
             .max_file_size = effective_max_size,
             .overwrite_on_full = config.overwrite_on_full,
             .flush_on_write = config.flush_on_write,
+            .auto_increment = config.auto_increment,
             .write_cursor = write_cursor,
             .record_size = record_size,
             .timestamp_offset = ts_offset,
@@ -310,7 +423,10 @@ pub const DynamicTimeSeriesDB = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.flush() catch {};
+        self.flush() catch |err| {
+            std.debug.print("ERROR: Failed to flush in deinit: {}\n", .{err});
+        };
+        self.file.sync() catch {};
         self.file.unlock();
         self.file.close();
         for (self.fields) |f| self.allocator.free(f.name);
@@ -324,14 +440,31 @@ pub const DynamicTimeSeriesDB = struct {
     pub fn append(self: *Self, data: []const u8) !void {
         if (data.len != self.record_size) return error.InvalidRecordSize;
 
-        // Monotonicity Check
-        const ts = std.mem.bytesToValue(i64, data[self.timestamp_offset .. self.timestamp_offset + 8]);
-        if (self.last_timestamp) |last| {
-            if (ts <= last) return error.TimestampNotMonotonic;
-        }
+        if (self.auto_increment) {
+            // Increment timestamp
+            const new_ts = (self.last_timestamp orelse 0) + 1;
+            self.last_timestamp = new_ts;
 
-        try self.buffered_writer.write(data);
-        self.last_timestamp = ts;
+            // Overwrite timestamp in data
+            // We need a mutable copy of data
+            var mut_data = try self.allocator.alloc(u8, data.len);
+            defer self.allocator.free(mut_data);
+            @memcpy(mut_data, data);
+
+            const ts_bytes = std.mem.asBytes(&new_ts);
+            @memcpy(mut_data[self.timestamp_offset .. self.timestamp_offset + 8], ts_bytes);
+
+            try self.buffered_writer.write(mut_data);
+        } else {
+            // Monotonicity Check
+            const ts = std.mem.bytesToValue(i64, data[self.timestamp_offset .. self.timestamp_offset + 8]);
+            if (self.last_timestamp) |last| {
+                if (ts <= last) return error.TimestampNotMonotonic;
+            }
+            self.last_timestamp = ts;
+
+            try self.buffered_writer.write(data);
+        }
 
         if (self.flush_on_write) {
             try self.flush();
@@ -732,11 +865,23 @@ test "TimeSeriesDB generic usage" {
         value: f64,
     };
 
-    const ticker = "TEST_TICKER";
-    const dir = "test_data";
+    const ticker = "TEST_ROOT_GENERIC";
+    // Randomize directory to avoid conflicts between parallel test runners
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_root_{x}", .{std.crypto.random.int(u64)});
 
-    // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
+    // Cleanup with retry
+    var retries: usize = 0;
+    while (retries < 10) : (retries += 1) {
+        std.fs.cwd().deleteTree(dir) catch |err| {
+            if (err == error.FileNotFound) break;
+            std.debug.print("deleteTree failed (retry {}): {}\n", .{ retries, err });
+            if (retries == 9) return err; // Fail on last retry
+            // std.time.sleep(10 * std.time.ns_per_ms);
+            continue;
+        };
+        break;
+    }
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
@@ -769,7 +914,14 @@ test "TimeSeriesDB generic usage" {
             extra: u8,
         };
         const WrongDB = TimeSeriesDB(WrongStruct);
-        try std.testing.expectError(error.SchemaMismatch, WrongDB.init(ticker, dir, std.testing.allocator, .{}));
+        // try std.testing.expectError(error.SchemaMismatch, WrongDB.init(ticker, dir, std.testing.allocator, .{}));
+        if (WrongDB.init(ticker, dir, std.testing.allocator, .{})) |db_val| {
+            var db = db_val;
+            db.deinit();
+            return error.TestExpectedError;
+        } else |err| {
+            if (err != error.SchemaMismatch) return err;
+        }
     }
 
     // Monotonic Timestamp Test

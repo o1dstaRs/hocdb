@@ -27,7 +27,7 @@ class HOCDB:
     """Python wrapper for HOCDB C API"""
     
     def __init__(self, ticker: str, path: str, schema: list, max_file_size: Optional[int] = None, 
-                 overwrite_on_full: bool = False, flush_on_write: bool = False):
+                 overwrite_on_full: bool = False, flush_on_write: bool = False, auto_increment: bool = False):
         """
         Initialize the database with dynamic schema
         
@@ -37,7 +37,9 @@ class HOCDB:
             schema: List of HOCDBField objects defining the schema
             max_file_size: Maximum file size (0 for default)
             overwrite_on_full: Whether to overwrite when full
+            overwrite_on_full: Whether to overwrite when full
             flush_on_write: Whether to flush on every write
+            auto_increment: Whether to auto-increment timestamp
         """
         # Load the C library - first try to find it in zig-out/lib
         lib_path = self._find_library()
@@ -69,6 +71,7 @@ class HOCDB:
         max_size = max_file_size if max_file_size is not None else 0
         overwrite_val = 1 if overwrite_on_full else 0
         flush_val = 1 if flush_on_write else 0
+        auto_inc_val = 1 if auto_increment else 0
         
         # Call C API
         self.handle = self.lib.hocdb_init(
@@ -78,7 +81,8 @@ class HOCDB:
             len(c_schema_fields),
             max_size,
             overwrite_val,
-            flush_val
+            flush_val,
+            auto_inc_val
         )
         
         if not self.handle:
@@ -118,7 +122,8 @@ class HOCDB:
             ctypes.c_size_t,          # schema_len
             ctypes.c_longlong,        # max_file_size
             ctypes.c_int,             # overwrite_on_full
-            ctypes.c_int              # flush_on_write
+            ctypes.c_int,             # flush_on_write
+            ctypes.c_int              # auto_increment
         ]
         self.lib.hocdb_init.restype = ctypes.c_void_p
         

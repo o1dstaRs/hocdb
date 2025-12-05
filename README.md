@@ -20,7 +20,7 @@
 > **The World's Most Performant Time-Series Database.**
 > *Built for speed. Built for scale. Built for victory.*
 
-HOCDB is a hyper-specialized, high-performance time-series database designed for extreme throughput and low latency. Originally built for crypto trading backtesting, it has evolved into a universal engine capable of saturating modern hardware.
+HOCDB is a high-performance time-series database engine. While originally built for the **hyper-specialized** needs of high-frequency crypto trading (extreme throughput, low latency), its flexible schema system and cross-language bindings make it a **universal** solution for any time-series workload requiring maximum efficiency.
 
 **Supported Languages:**
 *   **Zig** (Native)
@@ -55,12 +55,42 @@ zig build bench -Doptimize=ReleaseFast
 
 ---
 
-## Design Philosophy
-*   **Universal Core**: The core engine is written in **Zig** for manual memory control and zero hidden allocations, exposed via a stable C ABI.
-*   **Zero-Copy Access**: Load millions of records instantly. HOCDB maps data directly into memory, allowing your application to access it without copying.
-*   **Dynamic Schema**: Define your own data structure. HOCDB adapts to *your* data, not the other way around.
-*   **Append-Only**: Strictly sequential writes ensure maximum disk throughput and data integrity.
-*   **Ring Buffer**: Optional circular buffer mode to automatically overwrite old data when the file limit is reached.
+## Architecture & Design
+Why is HOCDB so fast?
+
+### 1. Fixed-Size Records
+Unlike JSON or CSV, HOCDB uses a binary format with fixed-size records. This allows **O(1) random access** to any record by index, eliminating parsing overhead and enabling instant lookups.
+
+### 2. Append-Only Log
+Data is written sequentially to the end of the file. This maximizes disk I/O bandwidth by avoiding random seeks during writes, making it ideal for high-throughput data ingestion.
+
+### 3. Zero-Serialization
+Data is laid out in memory exactly as it is on disk. Reading data involves simply mapping or reading bytes directly into a struct, with **zero CPU cycles spent on deserialization**.
+
+### 4. Ring Buffer
+HOCDB supports an optional circular buffer mode. When the file reaches its size limit, it automatically wraps around and overwrites the oldest data, ensuring constant disk usage without manual maintenance.
+
+### 5. Zig Core
+The core engine is written in **Zig**, providing manual memory control, no garbage collection pauses, and direct access to SIMD intrinsics for aggregation.
+
+---
+
+---
+
+## Schema & Data Types
+HOCDB uses a dynamic schema system defined at runtime. You must define your schema when initializing the database.
+
+### Supported Types
+| Type | Description | Size |
+| :--- | :--- | :--- |
+| `i64` | Signed 64-bit integer | 8 bytes |
+| `f64` | 64-bit floating point | 8 bytes |
+| `u64` | Unsigned 64-bit integer | 8 bytes |
+| `string` | Fixed-length string | 128 bytes |
+
+### ⚠️ Requirements
+*   **Timestamp Field**: Every schema **MUST** contain a field named `timestamp` of type `i64`. This is used for indexing, binary search, and time-range queries.
+*   **Field Order**: The order of fields in your schema definition must match the order in your struct/binary layout.
 
 ---
 
@@ -220,7 +250,6 @@ db.append(1620000000, 50000.0, 1.5);
 
 // Query Range
 const results = db.query(1620000000n, 1620000100n);
-
 // Aggregation
 const stats = db.getStats(1620000000n, 1620000100n, 1);
 console.log(stats);
@@ -246,10 +275,8 @@ int main() {
     
     // RAII Zero-Copy Load
     auto data = hocdb::load_with_raii<Trade>(db);
-
     // Query Range
     auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100);
-
     // Aggregation
     auto stats = db.getStats(1620000000, 1620000100, 1); // Index 1
     std::cout << "Min: " << stats.min << std::endl;
@@ -307,6 +334,7 @@ func main() {
 | `max_file_size` | Number | 2GB | Maximum size of the data file in bytes. |
 | `overwrite_on_full` | Boolean | `true` | Whether to overwrite old data when the file is full (Ring Buffer). |
 | `flush_on_write` | Boolean | `false` | Whether to flush to disk after every write. Ensures durability but reduces performance. |
+| `auto_increment` | Boolean | `false` | Automatically assign monotonically increasing timestamps to new records. Overwrites the timestamp field. |
 
 ---
 

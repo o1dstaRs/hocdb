@@ -10,10 +10,19 @@ const TestRecord = extern struct {
 
 test "Aggregation API (getStats, getLatest)" {
     const ticker = "TEST_STATS";
-    const dir = "test_stats_data";
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_{x}", .{std.crypto.random.int(u64)});
 
-    // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
+    // Cleanup with retry
+    var retries: usize = 0;
+    while (retries < 10) : (retries += 1) {
+        std.fs.cwd().deleteTree(dir) catch |err| {
+            if (err == error.FileNotFound) break;
+            if (retries == 9) return err;
+            continue;
+        };
+        break;
+    }
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     const DB = TimeSeriesDB(TestRecord);
@@ -74,9 +83,18 @@ test "Aggregation API (getStats, getLatest)" {
 
 test "Aggregation API (Wrapped Buffer)" {
     const ticker = "TEST_STATS_WRAPPED";
-    const dir = "test_stats_wrapped_data";
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_wrapped_{x}", .{std.crypto.random.int(u64)});
 
-    std.fs.cwd().deleteTree(dir) catch {};
+    var retries: usize = 0;
+    while (retries < 10) : (retries += 1) {
+        std.fs.cwd().deleteTree(dir) catch |err| {
+            if (err == error.FileNotFound) break;
+            if (retries == 9) return err;
+            continue;
+        };
+        break;
+    }
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     const DB = TimeSeriesDB(TestRecord);

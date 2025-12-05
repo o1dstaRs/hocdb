@@ -10,10 +10,11 @@ test "Integrity: Load with Ring Buffer" {
     };
 
     const ticker = "TEST_INTEGRITY_RING";
-    const dir = "test_integrity_ring_data";
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_ring_{x}", .{std.crypto.random.int(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
+    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     // Calculate size for exactly 5 records
@@ -61,10 +62,11 @@ test "Integrity: Random Data" {
     };
 
     const ticker = "TEST_INTEGRITY_RANDOM";
-    const dir = "test_integrity_random_data";
+    var dir_buf: [64]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_random_{x}", .{std.crypto.random.int(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch {};
+    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     const DB = TimeSeriesDB(TestStruct);

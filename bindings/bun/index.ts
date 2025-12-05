@@ -6,7 +6,7 @@ const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb_c.
 
 const { symbols } = dlopen(libPath, {
     hocdb_init: {
-        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.i64, FFIType.i32, FFIType.i32],
+        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.i64, FFIType.i32, FFIType.i32, FFIType.i32],
         returns: FFIType.ptr,
     },
     hocdb_append: {
@@ -49,6 +49,7 @@ export interface DBConfig {
     max_file_size?: number;
     overwrite_on_full?: boolean;
     flush_on_write?: boolean;
+    auto_increment?: boolean;
 }
 
 export interface FieldDef {
@@ -109,6 +110,7 @@ export class HOCDB {
         const maxSize = config.max_file_size ? BigInt(config.max_file_size) : 0n;
         const overwrite = config.overwrite_on_full === false ? 0 : 1;
         const flush = config.flush_on_write === true ? 1 : 0;
+        const autoInc = config.auto_increment === true ? 1 : 0;
 
         this.db = symbols.hocdb_init(
             ptr(tickerBytes),
@@ -117,7 +119,8 @@ export class HOCDB {
             BigInt(schema.length),
             maxSize,
             overwrite,
-            flush
+            flush,
+            autoInc
         );
 
         if (!this.db) {

@@ -2,6 +2,8 @@
 
 ## Agent Conventions
 
+Only append to this file if needed, do not overwrite existing content.
+
 ### Test Data Folders
 When creating tests for bindings, always use the following naming convention for the data directory:
 `b_<language>_test_data`

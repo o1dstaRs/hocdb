@@ -43,9 +43,10 @@ public:
      * @param max_file_size Maximum file size (0 for default)
      * @param overwrite_on_full Whether to overwrite when full
      * @param flush_on_write Whether to flush on every write
+     * @param auto_increment Whether to auto-increment timestamp
      * @throws Exception if initialization fails
      */
-    Database(const std::string& ticker, const std::string& path, const std::vector<Field>& schema, int64_t max_file_size = 0, bool overwrite_on_full = true, bool flush_on_write = false) {
+    Database(const std::string& ticker, const std::string& path, const std::vector<Field>& schema, int64_t max_file_size = 0, bool overwrite_on_full = true, bool flush_on_write = false, bool auto_increment = false) {
         std::vector<CField> c_schema;
         c_schema.reserve(schema.size());
         
@@ -60,7 +61,7 @@ public:
             }
         }
 
-        handle_ = hocdb_init(ticker.c_str(), path.c_str(), c_schema.data(), c_schema.size(), max_file_size, overwrite_on_full ? 1 : 0, flush_on_write ? 1 : 0);
+        handle_ = hocdb_init(ticker.c_str(), path.c_str(), c_schema.data(), c_schema.size(), max_file_size, overwrite_on_full ? 1 : 0, flush_on_write ? 1 : 0, auto_increment ? 1 : 0);
         if (!handle_) {
             throw Exception("Failed to initialize HOCDB");
         }
