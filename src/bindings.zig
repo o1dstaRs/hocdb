@@ -534,7 +534,7 @@ export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
 export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *usize) ?[*]u8 {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.flush() catch return null;
-    const data = db.query(start_ts, end_ts, std.heap.c_allocator) catch return null;
+    const data = db.query(start_ts, end_ts, &[_]hocdb.Filter{}, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
 }

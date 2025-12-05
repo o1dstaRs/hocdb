@@ -63,7 +63,7 @@ func Example() {
 	fmt.Printf("Loaded %d bytes of data\n", len(data))
 
 	// Query data
-	qdata, err := db.Query(1620000000, 1620000002)
+	qdata, err := db.Query(1620000000, 1620000002, nil)
 	if err != nil {
 		panic(err)
 	}

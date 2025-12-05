@@ -154,6 +154,8 @@ class HOCDB:
             ctypes.c_void_p,          # handle
             ctypes.c_longlong,        # start_ts
             ctypes.c_longlong,        # end_ts
+            ctypes.POINTER(HOCDBFilter), # filters
+            ctypes.c_size_t,          # filters_len
             ctypes.POINTER(ctypes.c_size_t)  # out_len
         ]
         self.lib.hocdb_query.restype = ctypes.c_void_p
@@ -229,13 +231,14 @@ class HOCDB:
             # Free the C-allocated memory
             self.lib.hocdb_free(data_ptr)
 
-    def query(self, start_ts: int, end_ts: int) -> Optional[bytes]:
+    def query(self, start_ts: int, end_ts: int, filters: Optional[list] = None) -> Optional[bytes]:
         """
-        Query records in a time range
+        Query records in a time range with optional filters
         
         Args:
             start_ts: Start timestamp (inclusive)
             end_ts: End timestamp (exclusive)
+            filters: Optional list of dicts with 'field_index' and 'value'
             
         Returns:
             Raw bytes of records in range, or None on failure
@@ -243,8 +246,26 @@ class HOCDB:
         if not self.handle:
             raise RuntimeError("Database not initialized")
         
+        filters_arr = None
+        filters_len = 0
+        
+        if filters:
+            filters_arr = (HOCDBFilter * len(filters))()
+            for i, f in enumerate(filters):
+                filters_arr[i].field_index = f['field_index']
+                if isinstance(f['value'], int):
+                    filters_arr[i].type = 1 # I64
+                    filters_arr[i].val_i64 = f['value']
+                elif isinstance(f['value'], float):
+                    filters_arr[i].type = 2 # F64
+                    filters_arr[i].val_f64 = f['value']
+                elif isinstance(f['value'], str):
+                    filters_arr[i].type = 5 # String
+                    filters_arr[i].val_string = f['value'].encode('utf-8')
+            filters_len = len(filters)
+        
         out_len = ctypes.c_size_t()
-        data_ptr = self.lib.hocdb_query(self.handle, start_ts, end_ts, ctypes.byref(out_len))
+        data_ptr = self.lib.hocdb_query(self.handle, start_ts, end_ts, filters_arr, filters_len, ctypes.byref(out_len))
         
         if not data_ptr:
             # If length is 0, it might be just empty result, but query returns null on error?
@@ -327,6 +348,18 @@ class CField(ctypes.Structure):
     _fields_ = [
         ("name", ctypes.c_char_p),
         ("type", ctypes.c_int),
+    ]
+
+
+class HOCDBFilter(ctypes.Structure):
+    """C-compatible filter definition"""
+    _fields_ = [
+        ("field_index", ctypes.c_size_t),
+        ("type", ctypes.c_int),
+        ("val_i64", ctypes.c_longlong),
+        ("val_f64", ctypes.c_double),
+        ("val_u64", ctypes.c_uint64),
+        ("val_string", ctypes.c_char * 128),
     ]
 
 

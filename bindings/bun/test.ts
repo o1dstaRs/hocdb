@@ -94,11 +94,11 @@ const rec1 = ringData[1];
 console.log(`Record 0 TS: ${rec0.timestamp}`);
 console.log(`Record 1 TS: ${rec1.timestamp}`);
 
-if (Number(rec0.timestamp) !== 300) {
-    throw new Error(`Expected Record 0 to be TS 300 (wrapped), got ${rec0.timestamp}`);
+if (Number(rec0.timestamp) !== 200) {
+    throw new Error(`Expected Record 0 to be TS 200, got ${rec0.timestamp}`);
 }
-if (Number(rec1.timestamp) !== 200) {
-    throw new Error(`Expected Record 1 to be TS 200, got ${rec1.timestamp}`);
+if (Number(rec1.timestamp) !== 300) {
+    throw new Error(`Expected Record 1 to be TS 300, got ${rec1.timestamp}`);
 }
 
 dbRing.close();
@@ -137,6 +137,57 @@ console.log("\nRunning Flush-on-Write Test...");
 
     db.close();
     console.log("✅ Flush-on-Write Test Passed!");
+
+    if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true });
+    }
+}
+
+// --- Filtering Test ---
+console.log("\nRunning Filtering Test...");
+{
+    const testDir = "./b_bun_test_data_filter";
+    if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true });
+    }
+
+    const db = new HOCDB("FILTER_TEST", testDir, [
+        { name: "timestamp", type: "i64" },
+        { name: "price", type: "f64" },
+        { name: "event", type: "i64" }
+    ], { overwrite_on_full: true });
+
+    // Append records
+    // 1. Deposit (event=1)
+    db.append({ timestamp: 100n, price: 100.0, event: 1n });
+
+    // 2. Withdraw (event=2)
+    db.append({ timestamp: 200n, price: 50.0, event: 2n });
+
+    // 3. Deposit (event=1)
+    db.append({ timestamp: 300n, price: 200.0, event: 1n });
+
+    db.flush();
+
+    // Filter by event = 1
+    const results = db.query(0n, 1000n, [
+        { field_index: 2, value: 1n }
+    ]);
+
+    console.log(`Filtered results count: ${results.length}`);
+
+    if (results.length !== 2) {
+        throw new Error(`Expected 2 records, got ${results.length}`);
+    }
+    if (results[0].timestamp !== 100n) {
+        throw new Error(`Expected first record ts 100, got ${results[0].timestamp}`);
+    }
+    if (results[1].timestamp !== 300n) {
+        throw new Error(`Expected second record ts 300, got ${results[1].timestamp}`);
+    }
+
+    db.close();
+    console.log("✅ Filtering Test Passed!");
 
     if (existsSync(testDir)) {
         rmSync(testDir, { recursive: true, force: true });

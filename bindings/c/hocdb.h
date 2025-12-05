@@ -12,6 +12,7 @@ extern "C" {
 #define HOCDB_TYPE_I64 1
 #define HOCDB_TYPE_F64 2
 #define HOCDB_TYPE_U64 3
+#define HOCDB_TYPE_STRING 5
 
 // Structure for schema field definition
 typedef struct {
@@ -73,7 +74,27 @@ void* hocdb_load(HOCDBHandle handle, size_t* out_len);
  * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
  *         Returns NULL on failure
  */
-void* hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, size_t* out_len);
+typedef struct {
+    size_t field_index;
+    int type;
+    int64_t val_i64;
+    double val_f64;
+    uint64_t val_u64;
+    char val_string[128];
+} HOCDBFilter;
+
+/**
+ * Query records in a time range with optional filtering
+ * @param handle Database handle
+ * @param start_ts Start timestamp (inclusive)
+ * @param end_ts End timestamp (exclusive)
+ * @param filters Array of HOCDBFilter structs (can be NULL)
+ * @param filters_len Number of filters
+ * @param out_len Output parameter to store the number of bytes loaded
+ * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
+ *         Returns NULL on failure
+ */
+void* hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, const HOCDBFilter* filters, size_t filters_len, size_t* out_len);
 
 typedef struct {
     double min;

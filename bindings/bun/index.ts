@@ -2,11 +2,11 @@ import { dlopen, FFIType, suffix, ptr, toArrayBuffer } from "bun:ffi";
 import { join } from "path";
 
 // Locate the shared library
-const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb.${suffix}`);
+const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb_c.${suffix}`);
 
 const { symbols } = dlopen(libPath, {
     hocdb_init: {
-        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.i64, FFIType.i32, FFIType.i32],
+        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.i64, FFIType.i32, FFIType.i32],
         returns: FFIType.ptr,
     },
     hocdb_append: {
@@ -22,7 +22,7 @@ const { symbols } = dlopen(libPath, {
         returns: FFIType.ptr,
     },
     hocdb_query: {
-        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr],
+        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.u64, FFIType.ptr],
         returns: FFIType.ptr,
     },
     hocdb_get_stats: {
@@ -33,7 +33,6 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
         returns: FFIType.i32,
     },
-
     hocdb_close: {
         args: [FFIType.ptr],
         returns: FFIType.void,
@@ -57,6 +56,11 @@ export interface FieldDef {
     type: 'i64' | 'f64' | 'u64';
 }
 
+export interface Filter {
+    field_index: number;
+    value: number | bigint | string;
+}
+
 export class HOCDB {
     db: any;
     schema: FieldDef[];
@@ -67,8 +71,8 @@ export class HOCDB {
     // But hocdb_init duplicates them. So we don't need to keep them after init.
 
     constructor(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
-        const tickerBytes = encoder.encode(ticker);
-        const pathBytes = encoder.encode(path);
+        const tickerBytes = encoder.encode(ticker + "\0");
+        const pathBytes = encoder.encode(path + "\0");
 
         // Process schema
         this.schema = schema;
@@ -108,11 +112,9 @@ export class HOCDB {
 
         this.db = symbols.hocdb_init(
             ptr(tickerBytes),
-            tickerBytes.length,
             ptr(pathBytes),
-            pathBytes.length,
             ptr(schemaBuffer),
-            schema.length,
+            BigInt(schema.length),
             maxSize,
             overwrite,
             flush
@@ -182,26 +184,56 @@ export class HOCDB {
         return result;
     }
 
-    query(start: bigint, end: bigint): Record<string, number | bigint>[] {
-        const lenPtr = new BigUint64Array(1);
-        const dataPtr = symbols.hocdb_query(this.db, start, end, ptr(lenPtr));
+    query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] = []): Record<string, number | bigint>[] {
+        if (!this.db) throw new Error("Database not initialized");
 
-        if (!dataPtr && lenPtr[0] > 0n) { // If len > 0 but ptr null, error. If len 0, ptr might be null?
-            // Actually if ptr is null, it means error OR empty?
-            // Zig returns null on error.
-            // If empty, it returns allocator.alloc(0) which might be valid ptr or not depending on allocator?
-            // But my Zig code returns null on error.
-            // If empty, it returns empty slice.
-            // Let's assume null means error.
-            // But wait, if query returns empty, it returns valid slice pointer (maybe).
-            // Let's check Zig code: `return allocator.alloc(u8, 0)` -> returns slice with len 0.
-            // `return data.ptr` -> returns pointer.
-            // If len is 0, ptr might be whatever.
-            // But `hocdb_query` returns `?[*]u8`.
-            // If error, returns `null`.
-            // So if `dataPtr` is 0 (null), it's an error?
-            // Unless len is 0.
-            if (lenPtr[0] === 0n) return [];
+        const lenPtr = new BigUint64Array(1);
+
+        let filtersPtr = null;
+        let filtersBuf = null;
+
+        if (filters.length > 0) {
+            // Construct C filter array
+            // Struct size: 168 bytes (approx, see previous reasoning)
+            const structSize = 168;
+            filtersBuf = new Uint8Array(filters.length * structSize);
+            const view = new DataView(filtersBuf.buffer);
+
+            for (let i = 0; i < filters.length; i++) {
+                const offset = i * structSize;
+                const f = filters[i];
+
+                view.setBigUint64(offset, BigInt(f.field_index), true); // Little endian
+
+                if (typeof f.value === 'bigint') {
+                    view.setInt32(offset + 8, 1, true); // Type I64
+                    view.setBigInt64(offset + 16, f.value, true);
+                } else if (typeof f.value === 'number') {
+                    // Could be f64 or i64 (if small int). Assume f64 for number.
+                    view.setInt32(offset + 8, 2, true); // Type F64
+                    view.setFloat64(offset + 24, f.value, true);
+                } else if (typeof f.value === 'string') {
+                    view.setInt32(offset + 8, 5, true); // Type String
+                    const strBytes = encoder.encode(f.value);
+                    // Copy to offset 40
+                    for (let j = 0; j < Math.min(strBytes.length, 128); j++) {
+                        filtersBuf[offset + 40 + j] = strBytes[j];
+                    }
+                }
+            }
+            filtersPtr = ptr(filtersBuf);
+        }
+
+        const dataPtr = symbols.hocdb_query(
+            this.db,
+            BigInt(startTs),
+            BigInt(endTs),
+            filtersPtr,
+            BigInt(filters.length),
+            ptr(lenPtr)
+        );
+
+        if (!dataPtr && lenPtr[0] > 0n) {
             throw new Error("Query failed");
         }
 
@@ -227,10 +259,6 @@ export class HOCDB {
             result[i] = record;
         }
 
-        // Free the result buffer from Zig?
-        // Zig allocated it with c_allocator.
-        // We need to free it.
-        // `hocdb_free` is exported.
         symbols.hocdb_free(dataPtr);
 
         return result;

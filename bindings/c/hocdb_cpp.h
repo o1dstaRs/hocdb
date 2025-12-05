@@ -150,39 +150,43 @@ public:
      *            or until the database is closed. The caller is responsible for calling
      *            free_data() to free the memory.
      */
-    std::pair<void*, size_t> load() {
+    std::vector<uint8_t> load() {
         size_t len = 0;
         void* data = hocdb_load(handle_, &len);
-        if (!data && len > 0) { // If len is 0, data might be null or valid pointer to 0 bytes?
-             // hocdb_load returns null on error. If empty, it might return non-null pointer to 0 bytes or null?
-             // Zig allocator.alloc(0) returns a slice with ptr...
-             // Let's assume if it returns null it failed.
+        if (!data && len > 0) {
              throw Exception("Failed to load data from HOCDB");
         }
         if (!data && len == 0) {
-            // Empty DB
-            return std::make_pair(nullptr, 0);
+            return {};
         }
-        return std::make_pair(data, len);
-        return std::make_pair(data, len);
+        
+        std::vector<uint8_t> result(static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + len);
+        hocdb_free(data);
+        return result;
     }
 
     /**
-     * @brief Query records in a time range
+     * @brief Query records in a time range with optional filters
      * @param start_ts Start timestamp
      * @param end_ts End timestamp
-     * @return std::pair containing pointer to raw bytes and total length in bytes
+     * @param filters Vector of HOCDBFilter structs to apply
+     * @return std::vector<uint8_t> containing the raw bytes of the matching records
      */
-    std::pair<void*, size_t> query(int64_t start_ts, int64_t end_ts) {
-        size_t len = 0;
-        void* data = hocdb_query(handle_, start_ts, end_ts, &len);
-        if (!data && len > 0) {
-             throw Exception("Failed to query data from HOCDB");
+    std::vector<uint8_t> query(int64_t start_ts, int64_t end_ts, const std::vector<HOCDBFilter>& filters = {}) {
+        size_t out_len = 0;
+        const HOCDBFilter* filters_ptr = filters.empty() ? nullptr : filters.data();
+        void* data = hocdb_query(handle_, start_ts, end_ts, filters_ptr, filters.size(), &out_len);
+        if (!data) {
+            return {}; // Return empty vector on failure or empty result
         }
-        if (!data && len == 0) {
-            return std::make_pair(nullptr, 0);
-        }
-        return std::make_pair(data, len);
+        
+        // Copy data to vector
+        std::vector<uint8_t> result(static_cast<uint8_t*>(data), static_cast<uint8_t*>(data) + out_len);
+        
+        // Free C memory
+        hocdb_free(data);
+        
+        return result;
     }
 
     /**
@@ -253,132 +257,6 @@ public:
     }
 };
 
-/**
- * @brief RAII wrapper for zero-copy loaded data
- * This ensures that the memory allocated by load() is properly freed
- */
-template<typename T>
-class DataBuffer {
-private:
-    T* data_;
-    size_t count_;
-    Database* db_ref_;
-
-public:
-    /**
-     * @brief Constructor taking the data pointer and database reference
-     */
-    DataBuffer(void* data, size_t byte_len, Database& db) 
-        : data_(static_cast<T*>(data)), count_(byte_len / sizeof(T)), db_ref_(&db) {
-        if (byte_len % sizeof(T) != 0) {
-            // Warning: byte length not multiple of struct size
-        }
-    }
-
-    /**
-     * @brief Destructor - automatically frees the data
-     */
-    ~DataBuffer() {
-        if (data_) {
-            db_ref_->free_data(data_);
-        }
-    }
-
-    /**
-     * @brief Move constructor
-     */
-    DataBuffer(DataBuffer&& other) noexcept 
-        : data_(other.data_), count_(other.count_), db_ref_(other.db_ref_) {
-        other.data_ = nullptr;
-        other.count_ = 0;
-    }
-
-    /**
-     * @brief Move assignment operator
-     */
-    DataBuffer& operator=(DataBuffer&& other) noexcept {
-        if (this != &other) {
-            if (data_) {
-                db_ref_->free_data(data_);
-            }
-            data_ = other.data_;
-            count_ = other.count_;
-            db_ref_ = other.db_ref_;
-            other.data_ = nullptr;
-            other.count_ = 0;
-        }
-        return *this;
-    }
-
-    /**
-     * @brief Copy constructor is deleted
-     */
-    DataBuffer(const DataBuffer&) = delete;
-
-    /**
-     * @brief Copy assignment operator is deleted
-     */
-    DataBuffer& operator=(const DataBuffer&) = delete;
-
-    /**
-     * @brief Get pointer to the data
-     */
-    const T* data() const { return data_; }
-
-    /**
-     * @brief Get number of records in the buffer
-     */
-    size_t size() const { return count_; }
-
-    /**
-     * @brief Check if the buffer is empty
-     */
-    bool empty() const { return count_ == 0; }
-
-    /**
-     * @brief Access operator for direct access to data
-     */
-    const T& operator[](size_t index) const {
-        if (index >= count_) {
-            throw Exception("Index out of bounds");
-        }
-        return data_[index];
-    }
-
-    /**
-     * @brief Get iterator to beginning of data
-     */
-    const T* begin() const { return data_; }
-
-    /**
-     * @brief Get iterator to end of data
-     */
-    const T* end() const { return data_ + count_; }
-};
-
-/**
- * @brief Convenience function to load data with automatic memory management
- * @param db Database instance to load from
- * @return DataBuffer RAII wrapper around the loaded data
- */
-template<typename T>
-inline DataBuffer<T> load_with_raii(Database& db) {
-    auto [data, len] = db.load();
-    return DataBuffer<T>(data, len, db);
-}
-
-/**
- * @brief Convenience function to query data with automatic memory management
- * @param db Database instance
- * @param start_ts Start timestamp
- * @param end_ts End timestamp
- * @return DataBuffer RAII wrapper around the loaded data
- */
-template<typename T>
-inline DataBuffer<T> query_with_raii(Database& db, int64_t start_ts, int64_t end_ts) {
-    auto [data, len] = db.query(start_ts, end_ts);
-    return DataBuffer<T>(data, len, db);
-}
 
 } // namespace hocdb
 

@@ -132,8 +132,21 @@ pub fn build(b: *std.Build) void {
         .root_module = exe.root_module,
     });
 
+    // Integrity Tests
+    const integrity_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_integrity.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "hocdb", .module = mod },
+            },
+        }),
+    });
+
     // A run step that will run the second test executable.
     const run_exe_tests = b.addRunArtifact(exe_tests);
+    const run_integrity_tests = b.addRunArtifact(integrity_tests);
 
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the two run steps do not depend on one another, this will
@@ -141,6 +154,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_integrity_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
@@ -233,4 +247,3 @@ pub fn build(b: *std.Build) void {
     go_bindings_step.dependOn(&c_lib_install.step); // Go bindings depend on C library
     go_bindings_step.dependOn(&install_headers_step.step); // Go bindings need headers for CGO
 }
-

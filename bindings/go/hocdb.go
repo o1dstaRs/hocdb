@@ -4,53 +4,54 @@ Package hocdb provides Go bindings for HOCDB - High-Performance Time Series Data
 The package uses CGO to interface with the underlying C library. Before using the package,
 ensure that the HOCDB C library (libhocdb_c) is built and available in the system library path.
 You can build the C library by running:
-    zig build c-bindings
+
+	zig build c-bindings
 
 Example usage:
 
-    package main
+	package main
 
-    import (
-        "fmt"
-        "hocdb"
-    )
+	import (
+	    "fmt"
+	    "hocdb"
+	)
 
-    func main() {
-        // Define schema
-        schema := []hocdb.Field{
-            {Name: "timestamp", Type: hocdb.TypeI64},
-            {Name: "price", Type: hocdb.TypeF64},
-            {Name: "volume", Type: hocdb.TypeF64},
-        }
+	func main() {
+	    // Define schema
+	    schema := []hocdb.Field{
+	        {Name: "timestamp", Type: hocdb.TypeI64},
+	        {Name: "price", Type: hocdb.TypeF64},
+	        {Name: "volume", Type: hocdb.TypeF64},
+	    }
 
-        // Create database instance
-        db, err := hocdb.New("BTC_USD", "./go_test_data", schema, hocdb.Options{
-            MaxFileSize:   0, // Use default
-            OverwriteFull: false,
-            FlushOnWrite:  false,
-        })
-        if err != nil {
-            panic(err)
-        }
-        defer db.Close()
+	    // Create database instance
+	    db, err := hocdb.New("BTC_USD", "./go_test_data", schema, hocdb.Options{
+	        MaxFileSize:   0, // Use default
+	        OverwriteFull: false,
+	        FlushOnWrite:  false,
+	    })
+	    if err != nil {
+	        panic(err)
+	    }
+	    defer db.Close()
 
-        // Create and append a record
-        record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
-        if err != nil {
-            panic(err)
-        }
-        err = db.Append(record)
-        if err != nil {
-            panic(err)
-        }
+	    // Create and append a record
+	    record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
+	    if err != nil {
+	        panic(err)
+	    }
+	    err = db.Append(record)
+	    if err != nil {
+	        panic(err)
+	    }
 
-        // Load all data
-        data, err := db.Load()
-        if err != nil {
-            panic(err)
-        }
-        fmt.Printf("Loaded %d bytes of data\n", len(data))
-    }
+	    // Load all data
+	    data, err := db.Load()
+	    if err != nil {
+	        panic(err)
+	    }
+	    fmt.Printf("Loaded %d bytes of data\n", len(data))
+	}
 */
 package hocdb
 
@@ -72,9 +73,10 @@ import (
 type FieldType int
 
 const (
-	TypeI64 FieldType = 1 // Signed 64-bit integer
-	TypeF64 FieldType = 2 // 64-bit floating point
-	TypeU64 FieldType = 3 // Unsigned 64-bit integer
+	TypeI64    FieldType = 1 // Signed 64-bit integer
+	TypeF64    FieldType = 2 // 64-bit floating point
+	TypeU64    FieldType = 3 // Unsigned 64-bit integer
+	TypeString FieldType = 5 // Fixed 128-byte string
 )
 
 // Field defines a field in the database schema
@@ -96,6 +98,12 @@ type Stats struct {
 type Latest struct {
 	Value     float64
 	Timestamp int64
+}
+
+// Filter represents a filter condition for queries
+type Filter struct {
+	FieldIndex int
+	Value      interface{}
 }
 
 // Options contains configuration options for the database
@@ -227,10 +235,51 @@ func (db *DB) Load() ([]byte, error) {
 	return data, nil
 }
 
-// Query retrieves records within the specified time range [startTs, endTs)
-func (db *DB) Query(startTs, endTs int64) ([]byte, error) {
+// Query retrieves records within the specified time range [startTs, endTs) with optional filters
+func (db *DB) Query(startTs, endTs int64, filters []Filter) ([]byte, error) {
 	if db.handle == nil {
 		return nil, errors.New("database not initialized")
+	}
+
+	// Convert Go filters to C filters
+	var cFiltersPtr *C.HOCDBFilter
+	if len(filters) > 0 {
+		cFilters := make([]C.HOCDBFilter, len(filters))
+		for i, f := range filters {
+			cFilters[i].field_index = C.size_t(f.FieldIndex)
+			switch v := f.Value.(type) {
+			case int64:
+				cFilters[i]._type = C.int(TypeI64)
+				cFilters[i].val_i64 = C.int64_t(v)
+			case float64:
+				cFilters[i]._type = C.int(TypeF64)
+				cFilters[i].val_f64 = C.double(v)
+			case uint64:
+				cFilters[i]._type = C.int(TypeU64)
+				cFilters[i].val_u64 = C.uint64_t(v)
+			case string:
+				cFilters[i]._type = C.int(TypeString)
+				// Copy string to fixed buffer
+				cStr := C.CString(v)
+				// We need to copy manually because val_string is a fixed array
+				// This is tricky in CGO directly to a struct field array.
+				// Let's use a helper or unsafe copy.
+				// Safe way:
+				var buf [128]byte
+				copy(buf[:], v)
+				// We can't assign Go array to C array directly easily.
+				// We have to cast.
+				// Actually, CGO maps char[128] to [128]C.char
+				for j := 0; j < 128 && j < len(v); j++ {
+					cFilters[i].val_string[j] = C.char(v[j])
+				}
+				cFilters[i].val_string[min(127, len(v))] = 0 // Null terminate just in case
+				C.free(unsafe.Pointer(cStr))                 // Not used actually
+			default:
+				return nil, errors.New("unsupported filter value type")
+			}
+		}
+		cFiltersPtr = &cFilters[0]
 	}
 
 	var outLen C.size_t
@@ -238,6 +287,8 @@ func (db *DB) Query(startTs, endTs int64) ([]byte, error) {
 		db.handle,
 		C.int64_t(startTs),
 		C.int64_t(endTs),
+		cFiltersPtr,
+		C.size_t(len(filters)),
 		&outLen,
 	)
 
@@ -253,6 +304,13 @@ func (db *DB) Query(startTs, endTs int64) ([]byte, error) {
 	data := C.GoBytes(dataPtr, C.int(outLen))
 
 	return data, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetStats returns statistics for a specific field within a time range
@@ -389,6 +447,20 @@ func CreateRecordBytes(schema []Field, values ...interface{}) ([]byte, error) {
 			// Convert to little-endian bytes
 			bytes := make([]byte, 8)
 			binary.LittleEndian.PutUint64(bytes, val)
+			record = append(record, bytes...)
+
+		case TypeString:
+			var val string
+			switch v := value.(type) {
+			case string:
+				val = v
+			default:
+				return nil, errors.New("invalid type for String field")
+			}
+
+			// Pad with zeros to 128 bytes
+			bytes := make([]byte, 128)
+			copy(bytes, val)
 			record = append(record, bytes...)
 
 		default:

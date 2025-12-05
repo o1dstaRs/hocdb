@@ -72,8 +72,11 @@ zig build bench -Doptimize=ReleaseFast
 
 ### Build & Test
 ```bash
-# Run all tests
-zig build test
+# Run all core tests (with summary)
+zig build test --summary all
+
+# Run full verification suite (Core + All Bindings)
+./verify_all.sh
 
 # Run benchmarks
 zig build bench -- -Doptimize=ReleaseFast

@@ -15,6 +15,7 @@ func TestHOCDB(t *testing.T) {
 
 	// Create test directory
 	testDir := "../../b_go_test_data"
+	os.RemoveAll(testDir)
 	err := os.MkdirAll(testDir, 0755)
 	if err != nil && !os.IsExist(err) {
 		t.Fatalf("Failed to create test directory: %v", err)
@@ -68,7 +69,7 @@ func TestHOCDB(t *testing.T) {
 	t.Logf("Loaded %d bytes of data", len(data))
 
 	// Query data
-	qdata, err := db.Query(1620000000, 1620000002)
+	qdata, err := db.Query(1620000000, 1620000002, nil)
 	if err != nil {
 		t.Fatalf("Failed to query data: %v", err)
 	}
@@ -131,6 +132,57 @@ func TestCreateRecordBytes(t *testing.T) {
 	_, err = CreateRecordBytes(schema, int64(1620000000), 50000.0) // Missing one value
 	if err == nil {
 		t.Error("Expected error for mismatched schema/value count")
+	}
+	if err == nil {
+		t.Error("Expected error for mismatched schema/value count")
+	}
+}
+
+func TestQueryFiltering(t *testing.T) {
+	schema := []Field{
+		{Name: "timestamp", Type: TypeI64},
+		{Name: "price", Type: TypeF64},
+		{Name: "event", Type: TypeString},
+	}
+
+	testDir := "../../b_go_test_data_filter"
+	os.RemoveAll(testDir)
+	os.MkdirAll(testDir, 0755)
+	defer os.RemoveAll(testDir)
+
+	db, err := New("FILTER_TEST", testDir, schema, Options{})
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	// Append records
+	// 1. Deposit
+	rec1, _ := CreateRecordBytes(schema, int64(100), 100.0, "deposit")
+	db.Append(rec1)
+	// 2. Withdraw
+	rec2, _ := CreateRecordBytes(schema, int64(200), 50.0, "withdraw")
+	db.Append(rec2)
+	// 3. Deposit
+	rec3, _ := CreateRecordBytes(schema, int64(300), 200.0, "deposit")
+	db.Append(rec3)
+
+	db.Flush()
+
+	// Filter by event = "deposit"
+	filters := []Filter{
+		{FieldIndex: 2, Value: "deposit"},
+	}
+
+	data, err := db.Query(0, 1000, filters)
+	if err != nil {
+		t.Fatalf("Failed to query with filter: %v", err)
+	}
+
+	// Expect 2 records (rec1 and rec3)
+	recordSize := 8 + 8 + 128
+	if len(data) != 2*recordSize {
+		t.Errorf("Expected %d bytes (2 records), got %d", 2*recordSize, len(data))
 	}
 }
 

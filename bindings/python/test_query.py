@@ -3,7 +3,7 @@ import shutil
 from hocdb_python import HOCDB, HOCDBField, FieldTypes, create_record_bytes
 
 TICKER = "TEST_QUERY_PYTHON"
-DATA_DIR = "test_query_python_data"
+DATA_DIR = "b_python_test_data"
 
 # Cleanup
 if os.path.exists(DATA_DIR):
@@ -50,6 +50,26 @@ for i in range(count):
     expected_ts = [200, 300, 400][i]
     if ts != expected_ts:
         raise RuntimeError(f"Expected ts {expected_ts}, got {ts}")
+
+print("Querying with filter (value=3.0)...")
+filtered_data = db.query(0, 1000, [{'field_index': 1, 'value': 3.0}])
+
+if filtered_data is None:
+    raise RuntimeError("Filtered query returned None")
+
+f_count = len(filtered_data) // record_size
+print(f"Filtered result count: {f_count}")
+
+if f_count != 1:
+    raise RuntimeError(f"Expected 1 record, got {f_count}")
+
+offset = 0
+ts = struct.unpack('<q', filtered_data[offset:offset+8])[0]
+val = struct.unpack('<d', filtered_data[offset+8:offset+16])[0]
+print(f"Filtered Record: ts={ts}, val={val}")
+
+if ts != 300 or val != 3.0:
+    raise RuntimeError(f"Expected ts=300, val=3.0, got ts={ts}, val={val}")
 
 print("✅ Python Query Test Passed!")
 

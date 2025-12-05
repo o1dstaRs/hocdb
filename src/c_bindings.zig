@@ -7,7 +7,16 @@ const DB = hocdb.DynamicTimeSeriesDB;
 
 pub const CField = extern struct {
     name: [*:0]const u8,
-    type: c_int, // 1=i64, 2=f64, 3=u64
+    type: c_int, // 1=i64, 2=f64, 3=u64, 5=string
+};
+
+pub const CFilter = extern struct {
+    field_index: usize,
+    type: c_int,
+    val_i64: i64,
+    val_f64: f64,
+    val_u64: u64,
+    val_string: [128]u8,
 };
 
 export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int) ?*anyopaque {
@@ -37,6 +46,7 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
             1 => .i64,
             2 => .f64,
             3 => .u64,
+            5 => .string,
             else => {
                 std.heap.c_allocator.free(name); // Free current name
                 var j: usize = 0; // Free previous names
@@ -90,7 +100,10 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
 
 export fn hocdb_append(db_ptr: *anyopaque, data_ptr: [*]const u8, data_len: usize) c_int {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    db.append(data_ptr[0..data_len]) catch return -1;
+    db.append(data_ptr[0..data_len]) catch |err| {
+        std.debug.print("hocdb_append failed: {}\n", .{err});
+        return -1;
+    };
     return 0;
 }
 
@@ -108,10 +121,29 @@ export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
     return data.ptr;
 }
 
-export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *usize) ?[*]u8 {
+export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, filters_ptr: [*]const CFilter, filters_len: usize, out_len: *usize) ?[*]u8 {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.flush() catch return null;
-    const data = db.query(start_ts, end_ts, std.heap.c_allocator) catch return null;
+
+    // Convert C filters to Zig filters
+    const filters = std.heap.c_allocator.alloc(hocdb.Filter, filters_len) catch return null;
+    defer std.heap.c_allocator.free(filters);
+
+    for (0..filters_len) |i| {
+        const cf = filters_ptr[i];
+        filters[i] = .{
+            .field_index = cf.field_index,
+            .value = switch (cf.type) {
+                1 => .{ .i64 = cf.val_i64 },
+                2 => .{ .f64 = cf.val_f64 },
+                3 => .{ .u64 = cf.val_u64 },
+                5 => .{ .string = cf.val_string },
+                else => return null, // Invalid type
+            },
+        };
+    }
+
+    const data = db.query(start_ts, end_ts, filters, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
 }
