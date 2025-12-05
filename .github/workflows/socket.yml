@@ -1,0 +1,12 @@
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 18
+  - name: Install Socket CLI
+    run: npm install -g @socketsecurity/cli
+  - name: Run Socket Scan
+    run: socket ci .
+    env:
+      # This pulls the key from the secret you just created
+      SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}

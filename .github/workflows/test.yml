@@ -17,6 +17,7 @@ jobs:
       uses: goto-bus-stop/setup-zig@v2
       with:
         version: master
+        cache: false
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
