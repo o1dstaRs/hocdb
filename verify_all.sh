@@ -47,6 +47,13 @@ clang -o bindings/c/test_auto_inc_recovery bindings/c/test_auto_inc_recovery.c -
 rm bindings/c/test_auto_inc_recovery
 echo "✅ C Recovery Test passed"
 
+# 7. Run Node.js Tests
+echo ""
+echo "[7/7] Running Node.js Tests..."
+zig build bindings
+node bindings/node/test.js
+echo "✅ Node.js Tests passed"
+
 echo ""
 echo "========================================"
 echo "🎉 ALL BINDINGS VERIFIED SUCCESSFULLY!"

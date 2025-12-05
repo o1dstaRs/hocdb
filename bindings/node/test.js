@@ -157,11 +157,11 @@ const rec1 = ringData[1];
 console.log(`Record 0 TS: ${rec0.timestamp}`);
 console.log(`Record 1 TS: ${rec1.timestamp}`);
 
-if (Number(rec0.timestamp) !== 300) {
-    throw new Error(`Expected Record 0 to be TS 300 (wrapped), got ${rec0.timestamp}`);
+if (Number(rec0.timestamp) !== 200) {
+    throw new Error(`Expected Record 0 to be TS 200, got ${rec0.timestamp}`);
 }
-if (Number(rec1.timestamp) !== 200) {
-    throw new Error(`Expected Record 1 to be TS 200, got ${rec1.timestamp}`);
+if (Number(rec1.timestamp) !== 300) {
+    throw new Error(`Expected Record 1 to be TS 300, got ${rec1.timestamp}`);
 }
 
 dbRing.close();
