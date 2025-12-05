@@ -1,12 +1,35 @@
-steps:
-  - uses: actions/checkout@v4
-  - uses: actions/setup-node@v4
-    with:
-      node-version: 18
-  - name: Install Socket CLI
-    run: npm install -g @socketsecurity/cli
-  - name: Run Socket Scan
-    run: socket ci .
-    env:
-      # This pulls the key from the secret you just created
-      SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+name: Socket Security Check
+
+# Trigger the scan on push or pull request to the main branch
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  socket-scan:
+    name: Socket Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout your code so Socket can see the lockfiles
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js (Required to run the Socket CLI)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # 3. Install the Socket CLI tool globally
+      - name: Install Socket CLI
+        run: npm install -g @socketsecurity/cli
+
+      # 4. Run the actual scan
+      - name: Run Socket CI
+        run: socket ci .
+        env:
+          # This connects to the Secret you added in the settings
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}

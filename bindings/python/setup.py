@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="hocdb",
-    version="0.1.0",
+    version="0.1.1",
     author="Heroes of Crypto AI",
     author_email="",
     description="High-Performance Time Series Database Python Bindings",
