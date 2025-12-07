@@ -21,10 +21,8 @@ pub const CFilter = extern struct {
 };
 
 export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int, auto_increment: c_int) ?*anyopaque {
-    std.debug.print("hocdb_init called\n", .{});
     const ticker = std.mem.span(ticker_z);
     const path = std.mem.span(path_z);
-    std.debug.print("ticker: {s}, path: {s}\n", .{ ticker, path });
 
     // Convert C schema to Zig schema
     const fields = std.heap.c_allocator.alloc(hocdb.FieldInfo, schema_len) catch return null;
@@ -103,10 +101,7 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
 
 export fn hocdb_append(db_ptr: *anyopaque, data_ptr: [*]const u8, data_len: usize) c_int {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    db.append(data_ptr[0..data_len]) catch |err| {
-        std.debug.print("hocdb_append failed: {}\n", .{err});
-        return -1;
-    };
+    db.append(data_ptr[0..data_len]) catch return -1;
     return 0;
 }
 

@@ -142,20 +142,6 @@ pub const DynamicTimeSeriesDB = struct {
         }
 
         pub fn write(self: *@This(), bytes: []const u8) !void {
-            // Check if record fits in current block
-            const current_pos = self.write_cursor.* + self.index;
-            const offset_in_block = current_pos % BLOCK_SIZE;
-            const remaining_in_block = BLOCK_SIZE - offset_in_block;
-
-            if (bytes.len > remaining_in_block) {
-                // Pad with zeros
-                if (remaining_in_block > 0) {
-                    try self.flush();
-                    @memset(self.buffer[0..remaining_in_block], 0);
-                    try self.writeRaw(self.buffer[0..remaining_in_block]);
-                }
-            }
-
             if (self.index + bytes.len > BLOCK_SIZE) {
                 try self.flush();
                 if (bytes.len > BLOCK_SIZE) {
@@ -231,8 +217,10 @@ pub const DynamicTimeSeriesDB = struct {
         // Exclusive lock
         try file.lock(.exclusive);
 
+        try file.sync();
         const stat = try file.stat();
-        // std.debug.print("DEBUG: init file={s} size={d}\n", .{ filename, stat.size });
+        // std.debug.print("DEBUG: load stat.size={d}\n", .{stat.size});
+        // const data_size = stat.size - HEADER_SIZE;
         var last_timestamp: ?i64 = null;
         var write_cursor: u64 = HEADER_SIZE;
         var is_wrapped = false;
@@ -265,7 +253,6 @@ pub const DynamicTimeSeriesDB = struct {
             if (!std.mem.eql(u8, header_buf[0..4], &MAGIC)) return error.InvalidMagic;
             const file_hash = std.mem.bytesToValue(u64, header_buf[4..12]);
             if (file_hash != schema_hash) return error.SchemaMismatch;
-
             // Recovery logic
             if (stat.size < effective_max_size) {
                 // Linear append mode
@@ -482,32 +469,12 @@ pub const DynamicTimeSeriesDB = struct {
     }
 
     fn countRecordsFromOffset(self: *Self, offset: u64) u64 {
-        const records_per_block = BLOCK_SIZE / self.record_size;
-        const block_index = offset / BLOCK_SIZE;
-        const offset_in_block = offset % BLOCK_SIZE;
-
-        var total_records = block_index * records_per_block;
-
-        if (block_index == 0) {
-            if (offset_in_block > HEADER_SIZE) {
-                total_records += (offset_in_block - HEADER_SIZE) / self.record_size;
-            }
-        } else {
-            total_records += offset_in_block / self.record_size;
-        }
-        return total_records;
+        if (offset <= HEADER_SIZE) return 0;
+        return (offset - HEADER_SIZE) / self.record_size;
     }
 
     fn getPhysicalOffsetLinear(self: *Self, index: u64) u64 {
-        const records_per_block = BLOCK_SIZE / self.record_size;
-        const block_index = index / records_per_block;
-        const index_in_block = index % records_per_block;
-
-        if (block_index == 0) {
-            return HEADER_SIZE + index_in_block * self.record_size;
-        } else {
-            return block_index * BLOCK_SIZE + index_in_block * self.record_size;
-        }
+        return HEADER_SIZE + index * self.record_size;
     }
 
     fn getPhysicalOffset(self: *Self, index: u64) u64 {
@@ -557,88 +524,130 @@ pub const DynamicTimeSeriesDB = struct {
         var result_list = std.ArrayListUnmanaged(u8){};
         defer result_list.deinit(allocator);
 
-        // Optimization: Pre-allocate if we know the size (approximate if filtering)
+        // Optimization: Pre-allocate
         if (filters.len == 0) {
             try result_list.ensureTotalCapacity(allocator, (end_idx - start_idx) * self.record_size);
         }
 
         var current_idx = start_idx;
         var record_buf: [4096]u8 = undefined;
-        var block_buf: [BLOCK_SIZE]u8 = undefined;
-        var cached_block_index: ?u64 = null;
-        var bytes_in_buffer: usize = 0;
+        // Ensure record_buf is large enough for at least one record
 
         while (current_idx < end_idx) {
-            const physical_offset = self.getPhysicalOffset(current_idx);
-            const block_index = physical_offset / BLOCK_SIZE;
-            const offset_in_block = physical_offset % BLOCK_SIZE;
+            // Determine how many contiguous records we can read
+            var contiguous_count: u64 = 0;
+            var physical_offset: u64 = 0;
 
-            if (cached_block_index != block_index) {
-                const read_pos = block_index * BLOCK_SIZE;
-                bytes_in_buffer = try self.file.preadAll(&block_buf, read_pos);
-                cached_block_index = block_index;
+            if (self.is_wrapped) {
+                const capacity = self.count();
+                const start_rec_index = self.countRecordsFromOffset(self.write_cursor);
+                // const target_rec_index = (start_rec_index + current_idx) % capacity; // Unused
+
+                // Let's rely on getPhysicalOffset to get the start.
+                physical_offset = self.getPhysicalOffset(current_idx);
+
+                // If physical_offset is >= write_cursor, we are in the "old" segment (upper part of file).
+                // We can read until max_file_size.
+                // If physical_offset < write_cursor, we are in the "new" segment (lower part of file).
+                // We can read until write_cursor.
+
+                // Actually, simpler: just read until end of file, then wrap manually if needed.
+                // But we are iterating by index.
+                // Let's just read one record at a time if wrapped, or try to optimize.
+
+                // Optimization: Read contiguous chunk
+                const records_until_wrap = capacity - ((start_rec_index + current_idx) % capacity);
+                // Also need to check physical bounds.
+                // If we are at offset X, we can read until max_file_size.
+                const bytes_until_eof = self.max_file_size - physical_offset;
+                const records_physically_contiguous = bytes_until_eof / self.record_size;
+
+                contiguous_count = @min(end_idx - current_idx, records_until_wrap);
+                contiguous_count = @min(contiguous_count, records_physically_contiguous);
+            } else {
+                // Linear mode: everything is contiguous
+                physical_offset = self.getPhysicalOffset(current_idx);
+                contiguous_count = end_idx - current_idx;
             }
 
-            if (offset_in_block + self.record_size > bytes_in_buffer) return error.UnexpectedEndOfFile;
+            // Limit chunk size to avoid huge allocations or buffer issues
+            const MAX_CHUNK_RECORDS = 1024;
+            contiguous_count = @min(contiguous_count, MAX_CHUNK_RECORDS);
 
-            // Optimization: Bulk copy if no filters
+            if (contiguous_count == 0) break; // Should not happen
+
+            const read_size = contiguous_count * self.record_size;
+
+            // If no filters, read directly into result
             if (filters.len == 0) {
-                const available_bytes = bytes_in_buffer - offset_in_block;
-                const max_records_in_block = available_bytes / self.record_size;
-                const records_needed = end_idx - current_idx;
-                const copy_count = @min(max_records_in_block, records_needed);
-
-                const start_offset = offset_in_block;
-                const end_offset = start_offset + copy_count * self.record_size;
-                try result_list.appendSlice(allocator, block_buf[start_offset..end_offset]);
-
-                current_idx += copy_count;
+                const old_len = result_list.items.len;
+                try result_list.ensureUnusedCapacity(allocator, read_size);
+                result_list.items.len += read_size;
+                const dest_slice = result_list.items[old_len..][0..read_size];
+                const len = try self.file.preadAll(dest_slice, physical_offset);
+                if (len != read_size) {
+                    return error.UnexpectedEndOfFile;
+                }
+                current_idx += contiguous_count;
                 continue;
             }
 
-            const record_slice = block_buf[offset_in_block .. offset_in_block + self.record_size];
-            @memcpy(record_buf[0..self.record_size], record_slice);
+            // If filters, read into temporary buffer and filter
+            // We reuse result_list as temp buffer? No.
+            // We need a buffer.
+            const temp_buf = try allocator.alloc(u8, read_size);
+            defer allocator.free(temp_buf);
 
-            var matches = true;
-            for (filters) |filter| {
-                // ... filter logic ...
-                const field_offset = try self.getFieldOffset(filter.field_index);
-                const field_type = self.fields[filter.field_index].type;
-                const val_ptr = record_buf[field_offset..];
+            const len = try self.file.preadAll(temp_buf, physical_offset);
+            if (len != read_size) return error.UnexpectedEndOfFile;
 
-                switch (filter.value) {
-                    .i64 => |v| {
-                        if (field_type != .i64) return error.TypeMismatch;
-                        const val = std.mem.bytesToValue(i64, val_ptr[0..8]);
-                        if (val != v) matches = false;
-                    },
-                    .f64 => |v| {
-                        if (field_type != .f64) return error.TypeMismatch;
-                        const val = std.mem.bytesToValue(f64, val_ptr[0..8]);
-                        if (val != v) matches = false;
-                    },
-                    .u64 => |v| {
-                        if (field_type != .u64) return error.TypeMismatch;
-                        const val = std.mem.bytesToValue(u64, val_ptr[0..8]);
-                        if (val != v) matches = false;
-                    },
-                    .string => |v| {
-                        if (field_type != .string) return error.TypeMismatch;
-                        if (!std.mem.eql(u8, val_ptr[0..128], &v)) matches = false;
-                    },
-                    .bool => |v| {
-                        if (field_type != .bool) return error.TypeMismatch;
-                        const val = std.mem.bytesToValue(bool, val_ptr[0..1]);
-                        if (val != v) matches = false;
-                    },
+            var i: usize = 0;
+            while (i < contiguous_count) : (i += 1) {
+                const rec_start = i * self.record_size;
+                const record_slice = temp_buf[rec_start .. rec_start + self.record_size];
+
+                // Filter logic
+                @memcpy(record_buf[0..self.record_size], record_slice);
+                var matches = true;
+                for (filters) |filter| {
+                    const field_offset = try self.getFieldOffset(filter.field_index);
+                    const field_type = self.fields[filter.field_index].type;
+                    const val_ptr = record_buf[field_offset..];
+
+                    switch (filter.value) {
+                        .i64 => |v| {
+                            if (field_type != .i64) return error.TypeMismatch;
+                            const val = std.mem.bytesToValue(i64, val_ptr[0..8]);
+                            if (val != v) matches = false;
+                        },
+                        .f64 => |v| {
+                            if (field_type != .f64) return error.TypeMismatch;
+                            const val = std.mem.bytesToValue(f64, val_ptr[0..8]);
+                            if (val != v) matches = false;
+                        },
+                        .u64 => |v| {
+                            if (field_type != .u64) return error.TypeMismatch;
+                            const val = std.mem.bytesToValue(u64, val_ptr[0..8]);
+                            if (val != v) matches = false;
+                        },
+                        .string => |v| {
+                            if (field_type != .string) return error.TypeMismatch;
+                            if (!std.mem.eql(u8, val_ptr[0..128], &v)) matches = false;
+                        },
+                        .bool => |v| {
+                            if (field_type != .bool) return error.TypeMismatch;
+                            const val = std.mem.bytesToValue(bool, val_ptr[0..1]);
+                            if (val != v) matches = false;
+                        },
+                    }
+                    if (!matches) break;
                 }
-                if (!matches) break;
-            }
 
-            if (matches) {
-                try result_list.appendSlice(allocator, record_buf[0..self.record_size]);
+                if (matches) {
+                    try result_list.appendSlice(allocator, record_slice);
+                }
             }
-            current_idx += 1;
+            current_idx += contiguous_count;
         }
 
         return result_list.toOwnedSlice(allocator);

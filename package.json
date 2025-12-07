@@ -1,0 +1,12 @@
+{
+    "name": "hocdb",
+    "version": "0.1.0",
+    "description": "High Performance Time Series Database",
+    "main": "bindings/node/index.js",
+    "types": "bindings/bun/index.ts",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "MIT"
+}
