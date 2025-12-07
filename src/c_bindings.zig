@@ -104,6 +104,7 @@ export fn hocdb_append(db_ptr: *anyopaque, data_ptr: [*]const u8, data_len: usiz
     db.append(data_ptr[0..data_len]) catch |err| {
         if (err == error.InvalidRecordSize) return -2;
         if (err == error.TimestampNotMonotonic) return -3;
+        std.debug.print("HOCDB Append Error: {s}\n", .{@errorName(err)});
         return -1;
     };
     return 0;
