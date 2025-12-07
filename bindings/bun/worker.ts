@@ -16,6 +16,18 @@ self.onmessage = (event: MessageEvent) => {
             case 'append':
                 if (!db) throw new Error("DB not initialized");
                 db.append(payload);
+                self.postMessage({ id, status: "success" });
+                return; // Exit after posting message
+            case 'appendBatch':
+                if (!db) throw new Error("DB not initialized");
+                for (const record of payload) {
+                    db.append(record);
+                }
+                self.postMessage({ id, status: "success" });
+                return; // Exit after posting message
+            case 'flush':
+                if (!db) throw new Error("DB not initialized");
+                db.flush();
                 result = { success: true };
                 break;
             case 'query':

@@ -255,6 +255,21 @@ fn dbAppend(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return null;
 }
 
+// dbFlush(db: external): void
+fn dbFlush(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
+    const args = getArgs(env, info, 1) catch return throwError(env, "Expected 1 argument");
+
+    var db_ptr: ?*anyopaque = null;
+    _ = napi_get_value_external(env, args[0], &db_ptr);
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
+
+    db.flush() catch |err| {
+        return throwError(env, @errorName(err));
+    };
+
+    return null;
+}
+
 // Finalizer for ArrayBuffer
 fn freeData(env: napi_env, data: *anyopaque, hint: *anyopaque) callconv(.c) void {
     _ = env;
@@ -491,6 +506,7 @@ export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value
     const descriptors = [_]napi_property_descriptor{
         .{ .utf8name = "dbInit", .name = null, .method = dbInit, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbAppend", .name = null, .method = dbAppend, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
+        .{ .utf8name = "dbFlush", .name = null, .method = dbFlush, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbLoad", .name = null, .method = dbLoad, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbQuery", .name = null, .method = dbQuery, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbGetStats", .name = null, .method = dbGetStats, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },

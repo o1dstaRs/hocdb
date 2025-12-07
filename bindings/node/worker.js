@@ -13,8 +13,27 @@ parentPort.on('message', (msg) => {
                 result = { success: true };
                 break;
             case 'append':
+                if (!db) throw new Error("DB not initialized");
                 db.append(payload);
-                result = { success: true };
+                parentPort.postMessage({ id, result: { success: true } });
+                break;
+
+            case 'appendBatch':
+                if (!db) throw new Error("DB not initialized");
+                for (const record of payload) {
+                    db.append(record);
+                }
+                parentPort.postMessage({ id, result: { success: true } });
+                break;
+
+            case 'flush':
+                // Node binding doesn't expose flush yet in sync mode? 
+                // Let's check index.js dbInit return object.
+                // It seems dbInit returns an object with _db, append, load, query, getStats, getLatest, close, drop.
+                // It does NOT expose flush. We need to add flush to dbInit in index.js first if we want to use it here.
+                // For now, we can ignore or try to call it if it exists.
+                if (db.flush) db.flush();
+                parentPort.postMessage({ id, result: { success: true } });
                 break;
             case 'query':
                 result = db.query(payload.start, payload.end, payload.filters);

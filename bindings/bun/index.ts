@@ -55,6 +55,7 @@ export interface DBConfig {
     overwrite_on_full?: boolean;
     flush_on_write?: boolean;
     auto_increment?: boolean;
+    fakeAsync?: boolean;
 }
 
 export interface FieldDef {
@@ -351,6 +352,25 @@ export class HOCDB {
     }
 
     static async initAsync(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
+        if (config.fakeAsync) {
+            const db = new HOCDB(ticker, path, schema, config);
+            return {
+                append: async (data: any) => db.append(data),
+                appendBatch: async (data: any[]) => {
+                    for (const record of data) {
+                        db.append(record);
+                    }
+                },
+                flush: async () => db.flush(),
+                query: async (start: bigint | number, end: bigint | number, filters: any) => db.query(start, end, filters),
+                load: async () => db.load(),
+                getStats: async (start: bigint | number, end: bigint | number, field_index: number) => db.getStats(BigInt(start), BigInt(end), field_index),
+                getLatest: async (field_index: number) => db.getLatest(field_index),
+                close: async () => db.close(),
+                drop: async () => db.drop()
+            };
+        }
+
         const workerURL = new URL("worker.ts", import.meta.url).href;
         const worker = new Worker(workerURL);
 
@@ -384,6 +404,8 @@ export class HOCDB {
 
         return {
             append: (data: any) => callWorker('append', data),
+            appendBatch: (data: any[]) => callWorker('appendBatch', data),
+            flush: () => callWorker('flush', {}),
             query: (start: bigint | number, end: bigint | number, filters: any) => callWorker('query', { start, end, filters }),
             load: () => callWorker('load', {}),
             getStats: (start: bigint | number, end: bigint | number, field_index: number) => callWorker('getStats', { start, end, field_index }),
