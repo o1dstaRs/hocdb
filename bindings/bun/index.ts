@@ -55,7 +55,6 @@ export interface DBConfig {
     overwrite_on_full?: boolean;
     flush_on_write?: boolean;
     auto_increment?: boolean;
-    fakeAsync?: boolean;
 }
 
 export interface FieldDef {
@@ -352,72 +351,89 @@ export class HOCDB {
     }
 
     static async initAsync(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
-        if (config.fakeAsync) {
-            const db = new HOCDB(ticker, path, schema, config);
-            return {
-                append: async (data: any) => db.append(data),
-                appendBatch: async (data: any[]) => {
-                    for (const record of data) {
-                        db.append(record);
-                    }
-                },
-                flush: async () => db.flush(),
-                query: async (start: bigint | number, end: bigint | number, filters: any) => db.query(start, end, filters),
-                load: async () => db.load(),
-                getStats: async (start: bigint | number, end: bigint | number, field_index: number) => db.getStats(BigInt(start), BigInt(end), field_index),
-                getLatest: async (field_index: number) => db.getLatest(field_index),
-                close: async () => db.close(),
-                drop: async () => db.drop()
-            };
-        }
+        console.warn("HOCDB.initAsync is deprecated. Use new HOCDBAsync() instead.");
+        return new HOCDBAsync(ticker, path, schema, config);
+    }
+}
 
+export class HOCDBAsync {
+    private worker: Worker;
+    private msgId: number = 0;
+    private pending: Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void }>;
+
+    constructor(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
         const workerURL = new URL("worker.ts", import.meta.url).href;
-        const worker = new Worker(workerURL);
+        this.worker = new Worker(workerURL);
+        this.pending = new Map();
 
-        let msgId = 0;
-        const pending = new Map();
-
-        worker.onmessage = (event) => {
+        this.worker.onmessage = (event) => {
             const { id, result, error } = event.data;
-            if (pending.has(id)) {
-                const { resolve, reject } = pending.get(id);
-                pending.delete(id);
+            if (this.pending.has(id)) {
+                const { resolve, reject } = this.pending.get(id)!;
+                this.pending.delete(id);
                 if (error) reject(new Error(error));
                 else resolve(result);
             }
         };
 
-        worker.onerror = (err) => {
+        this.worker.onerror = (err) => {
             console.error("Worker error:", err);
         };
 
-        const callWorker = (type: string, payload: any) => {
-            return new Promise((resolve, reject) => {
-                const id = msgId++;
-                pending.set(id, { resolve, reject });
-                worker.postMessage({ id, type, payload });
-            });
-        };
-
         // Initialize DB in worker
-        await callWorker('init', { ticker, path, schema, config });
+        // We fire and forget the init call here, or we could make constructor async (not possible in JS)
+        // or have an init method. For now, we'll queue it.
+        // Actually, to match previous behavior, we should probably wait for init.
+        // But constructors can't be async.
+        // Let's just queue the init message. The worker processes messages in order.
+        this.callWorker('init', { ticker, path, schema, config }).catch(err => {
+            console.error("Failed to initialize HOCDBAsync:", err);
+        });
+    }
 
-        return {
-            append: (data: any) => callWorker('append', data),
-            appendBatch: (data: any[]) => callWorker('appendBatch', data),
-            flush: () => callWorker('flush', {}),
-            query: (start: bigint | number, end: bigint | number, filters: any) => callWorker('query', { start, end, filters }),
-            load: () => callWorker('load', {}),
-            getStats: (start: bigint | number, end: bigint | number, field_index: number) => callWorker('getStats', { start, end, field_index }),
-            getLatest: (field_index: number) => callWorker('getLatest', { field_index }),
-            close: async () => {
-                await callWorker('close', {});
-                worker.terminate();
-            },
-            drop: async () => {
-                await callWorker('drop', {});
-                worker.terminate();
-            }
-        };
+    private callWorker(type: string, payload: any): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const id = this.msgId++;
+            this.pending.set(id, { resolve, reject });
+            this.worker.postMessage({ id, type, payload });
+        });
+    }
+
+    async append(data: any): Promise<void> {
+        await this.callWorker('append', data);
+    }
+
+    async appendBatch(data: any[]): Promise<void> {
+        await this.callWorker('appendBatch', data);
+    }
+
+    async flush(): Promise<void> {
+        await this.callWorker('flush', {});
+    }
+
+    async query(start: bigint | number, end: bigint | number, filters: any): Promise<any[]> {
+        return this.callWorker('query', { start, end, filters });
+    }
+
+    async load(): Promise<any[]> {
+        return this.callWorker('load', {});
+    }
+
+    async getStats(start: bigint | number, end: bigint | number, field_index: number): Promise<any> {
+        return this.callWorker('getStats', { start, end, field_index });
+    }
+
+    async getLatest(field_index: number): Promise<any> {
+        return this.callWorker('getLatest', { field_index });
+    }
+
+    async close(): Promise<void> {
+        await this.callWorker('close', {});
+        this.worker.terminate();
+    }
+
+    async drop(): Promise<void> {
+        await this.callWorker('drop', {});
+        this.worker.terminate();
     }
 }

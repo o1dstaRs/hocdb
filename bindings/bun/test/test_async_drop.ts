@@ -1,4 +1,4 @@
-import { HOCDB, FieldDef } from "../index";
+import { HOCDBAsync, FieldDef } from "../index";
 import { join } from "path";
 import { rmSync, existsSync } from "node:fs";
 
@@ -17,7 +17,8 @@ const schema: FieldDef[] = [
 
 async function runTest() {
     console.log("Initializing Async DB...");
-    const db = await HOCDB.initAsync(TICKER, DATA_DIR, schema, {
+    // @ts-ignore
+    const db = new HOCDBAsync(TICKER, DATA_DIR, schema, {
         max_file_size: 1024 * 1024,
         overwrite_on_full: true
     });

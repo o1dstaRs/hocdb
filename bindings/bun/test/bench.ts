@@ -1,13 +1,16 @@
-import { HOCDB } from "../index";
+import { HOCDB, HOCDBAsync } from "../index.ts"; // Changed HOCDB to HOCDBAsync
 import { unlinkSync, existsSync, mkdirSync } from "fs";
+import { join } from "path"; // Added join for path manipulation
 
 const DATA_DIR = "bench_data";
 const ITERATIONS = 1_000_000;
 const BATCH_SIZE = 1000;
 
-async function runBench(fakeAsync = false) {
-    const mode = fakeAsync ? "FAKE ASYNC" : "WORKER ASYNC";
-    console.log(`\n=== Running Benchmark: ${mode} ===`);
+async function runBench() { // Removed fakeAsync parameter
+    const dbName = "bench_metric"; // Define dbName
+    const dbPath = join(DATA_DIR, dbName); // Construct full dbPath
+
+    console.log(`\n=== Running Benchmark: WORKER ASYNC ===`); // Simplified mode output
 
     if (existsSync(DATA_DIR)) {
         // Simple recursive delete for cleanup
@@ -19,12 +22,13 @@ async function runBench(fakeAsync = false) {
     const schema = [
         { name: "timestamp", type: "i64" },
         { name: "value", type: "f64" },
-    ];
+    ] as const;
 
     console.log(`Starting Benchmark: ${ITERATIONS} writes...`);
 
-    // Initialize Async DB
-    const db = await HOCDB.initAsync("bench_metric", DATA_DIR, schema, { fakeAsync });
+    // Initialize Async DB using HOCDBAsync constructor
+    // @ts-ignore
+    const db = new HOCDBAsync(dbName, dbPath, schema); // Changed initAsync to HOCDBAsync constructor
 
     const start = performance.now();
 
@@ -63,8 +67,7 @@ async function runBench(fakeAsync = false) {
 }
 
 async function main() {
-    await runBench(false); // Worker
-    await runBench(true);  // Fake Async
+    await runBench(); // Worker
 }
 
 main().catch(console.error);

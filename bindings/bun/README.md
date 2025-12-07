@@ -11,10 +11,10 @@ bun install
 ## Usage
 
 ```typescript
-import { HOCDB } from "./index.ts";
+import { HOCDBAsync } from "./index.ts";
 
 // Initialize
-const db = await HOCDB.initAsync("BTC_USD", "./data", schema);
+const db = new HOCDBAsync("BTC_USD", "./data", schema);
 
 // Append
 await db.append({ timestamp: 100, price: 50000.0 });

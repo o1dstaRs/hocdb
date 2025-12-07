@@ -172,24 +172,6 @@ module.exports = {
     },
 
     dbInitAsync: (ticker, dirPath, schema, config) => {
-        if (config && config.fakeAsync) {
-            const db = module.exports.dbInit(ticker, dirPath, schema, config);
-            return Promise.resolve({
-                append: async (data) => db.append(data),
-                appendBatch: async (data) => {
-                    for (const record of data) {
-                        db.append(record);
-                    }
-                },
-                flush: async () => { /* Sync flush if available, or no-op */ },
-                query: async (start, end, filters) => db.query(start, end, filters),
-                load: async () => db.load(),
-                getStats: async (start, end, field_index) => db.getStats(start, end, field_index),
-                getLatest: async (field_index) => db.getLatest(field_index),
-                close: async () => db.close(),
-                drop: async () => db.drop()
-            });
-        }
 
         const { Worker } = require('worker_threads');
         const worker = new Worker(path.join(__dirname, 'worker.js'));

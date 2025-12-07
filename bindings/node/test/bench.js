@@ -6,9 +6,8 @@ const DATA_DIR = "bench_data_node";
 const ITERATIONS = 1_000_000;
 const BATCH_SIZE = 1000;
 
-async function runBench(fakeAsync = false) {
-    const mode = fakeAsync ? "FAKE ASYNC" : "WORKER ASYNC";
-    console.log(`\n=== Running Benchmark: ${mode} ===`);
+async function runBench() {
+    console.log(`\n=== Running Benchmark: WORKER ASYNC ===`);
 
     if (fs.existsSync(DATA_DIR)) {
         fs.rmSync(DATA_DIR, { recursive: true, force: true });
@@ -23,7 +22,7 @@ async function runBench(fakeAsync = false) {
     console.log(`Starting Benchmark: ${ITERATIONS} writes...`);
 
     // Initialize Async DB
-    const db = await dbInitAsync("bench_metric", DATA_DIR, schema, { fakeAsync });
+    const db = await dbInitAsync("bench_metric", DATA_DIR, schema);
 
     const start = performance.now();
 
@@ -74,15 +73,7 @@ async function runBench(fakeAsync = false) {
 }
 
 async function main() {
-    // We expect this to be slow initially
-    await runBench(false);
-
-    // This might fail if fakeAsync is not implemented yet, but good to check
-    try {
-        await runBench(true);
-    } catch (e) {
-        console.log("Fake async not supported yet");
-    }
+    await runBench();
 }
 
 main().catch(console.error);

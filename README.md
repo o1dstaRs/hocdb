@@ -275,9 +275,9 @@ run();
 Native FFI bindings for Bun.
 
 ```typescript
-import { HOCDB } from "./bindings/bun/index.ts";
+import { HOCDBAsync } from "./bindings/bun/index.ts";
 
-const db = await HOCDB.initAsync("BTC_USD", "./data", [
+const db = new HOCDBAsync("BTC_USD", "./data", [
     { name: "timestamp", type: "i64" },
     { name: "price", type: "f64" },
     { name: "active", type: "bool" },
