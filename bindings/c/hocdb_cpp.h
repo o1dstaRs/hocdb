@@ -124,7 +124,10 @@ public:
         if (len != record_size_) {
             throw Exception("Data length mismatch with schema record size");
         }
-        if (hocdb_append(handle_, data, len) != 0) {
+        int res = hocdb_append(handle_, data, len);
+        if (res != 0) {
+            if (res == -2) throw Exception("Append failed: Invalid Record Size");
+            if (res == -3) throw Exception("Append failed: Timestamp Not Monotonic - timestamps must be strictly increasing");
             throw Exception("Failed to append record to HOCDB");
         }
     }

@@ -101,7 +101,11 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
 
 export fn hocdb_append(db_ptr: *anyopaque, data_ptr: [*]const u8, data_len: usize) c_int {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    db.append(data_ptr[0..data_len]) catch return -1;
+    db.append(data_ptr[0..data_len]) catch |err| {
+        if (err == error.InvalidRecordSize) return -2;
+        if (err == error.TimestampNotMonotonic) return -3;
+        return -1;
+    };
     return 0;
 }
 

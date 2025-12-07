@@ -147,7 +147,10 @@ export class HOCDB {
 
         const res = symbols.hocdb_append(this.db, ptr(buffer), BigInt(this.recordSize));
         if (res !== 0) {
-            throw new Error("Append failed");
+            let msg = `Append failed with error code: ${res}`;
+            if (res === -2) msg += " (Invalid Record Size)";
+            if (res === -3) msg += " (Timestamp Not Monotonic - timestamps must be strictly increasing)";
+            throw new Error(msg);
         }
     }
 

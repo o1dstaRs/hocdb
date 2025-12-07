@@ -204,6 +204,10 @@ class HOCDB:
             record_data,
             len(record_data)
         )
+        if result == -2:
+            raise ValueError("Append failed: Invalid Record Size")
+        if result == -3:
+            raise ValueError("Append failed: Timestamp Not Monotonic - timestamps must be strictly increasing")
         return result == 0
     
     def flush(self) -> bool:

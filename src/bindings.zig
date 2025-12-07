@@ -247,6 +247,8 @@ fn dbAppend(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     const data = @as([*]const u8, @ptrCast(data_ptr.?))[0..data_len];
 
     db.append(data) catch |err| {
+        if (err == error.InvalidRecordSize) return throwError(env, "Append failed: Invalid Record Size");
+        if (err == error.TimestampNotMonotonic) return throwError(env, "Append failed: Timestamp Not Monotonic - timestamps must be strictly increasing");
         return throwError(env, @errorName(err));
     };
 

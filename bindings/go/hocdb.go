@@ -207,6 +207,12 @@ func (db *DB) Append(data []byte) error {
 	)
 
 	if result != 0 {
+		if result == -2 {
+			return errors.New("append failed: invalid record size")
+		}
+		if result == -3 {
+			return errors.New("append failed: timestamp not monotonic - timestamps must be strictly increasing")
+		}
 		return errors.New("failed to append data to HOCDB")
 	}
 
