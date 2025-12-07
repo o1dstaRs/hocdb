@@ -1,5 +1,6 @@
 import { dlopen, FFIType, suffix, ptr, toArrayBuffer } from "bun:ffi";
 import { join } from "path";
+import { unlinkSync, existsSync } from "node:fs";
 
 // Locate the shared library
 const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb_c.${suffix}`);
@@ -33,11 +34,15 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
         returns: FFIType.i32,
     },
-    hocdb_close: {
+    hocdb_free: {
         args: [FFIType.ptr],
         returns: FFIType.void,
     },
-    hocdb_free: {
+    hocdb_drop: {
+        args: [FFIType.ptr],
+        returns: FFIType.i32,
+    },
+    hocdb_close: {
         args: [FFIType.ptr],
         returns: FFIType.void,
     },
@@ -68,10 +73,12 @@ export class HOCDB {
     recordSize: number;
     fieldOffsets: Record<string, { offset: number, type: string, index: number }>;
     nameBuffers: Uint8Array[];
-    // Actually we need to keep the name strings alive during init call.
-    // But hocdb_init duplicates them. So we don't need to keep them after init.
+    ticker: string;
+    path: string;
 
     constructor(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
+        this.ticker = ticker;
+        this.path = path;
         const tickerBytes = encoder.encode(ticker + "\0");
         const pathBytes = encoder.encode(path + "\0");
 
@@ -88,6 +95,7 @@ export class HOCDB {
 
         for (let i = 0; i < schema.length; i++) {
             const field = schema[i];
+            if (!field) continue;
             this.fieldOffsets[field.name] = { offset: this.recordSize, type: field.type, index: i };
 
             let typeCode;
@@ -226,6 +234,7 @@ export class HOCDB {
             for (let i = 0; i < filterArray.length; i++) {
                 const offset = i * structSize;
                 const f = filterArray[i];
+                if (!f) continue;
 
                 view.setBigUint64(offset, BigInt(f.field_index), true); // Little endian
 
@@ -246,19 +255,6 @@ export class HOCDB {
                 } else if (typeof f.value === 'boolean') {
                     view.setInt32(offset + 8, 6, true); // Type Bool
                     view.setUint8(offset + 168, f.value ? 1 : 0); // val_bool is at end of struct, check offset!
-                    // Wait, struct layout:
-                    // field_index: 8
-                    // type: 4 (aligned to 8?) -> 8
-                    // val_i64: 8
-                    // val_f64: 8
-                    // val_u64: 8
-                    // val_string: 128
-                    // val_bool: 1
-                    // Total: 8 + 8 + 8 + 8 + 8 + 128 + 1 = 169? Aligned to 8 -> 176?
-                    // Let's check C struct alignment.
-                    // size_t (8), int (4+4pad), i64(8), f64(8), u64(8), char[128], bool(1+7pad)
-                    // Offset of val_bool: 8+8+8+8+8+128 = 168.
-                    // So offset + 168 is correct.
                 }
             }
             filtersPtr = ptr(filtersBuf);
@@ -268,7 +264,7 @@ export class HOCDB {
             this.db,
             BigInt(startTs),
             BigInt(endTs),
-            filtersPtr,
+            filtersPtr ?? 0, // Pass 0 (null pointer) if filtersPtr is null
             BigInt(filterArray.length),
             ptr(lenPtr)
         );
@@ -335,8 +331,8 @@ export class HOCDB {
         }
 
         return {
-            value: valPtr[0],
-            timestamp: tsPtr[0]
+            value: valPtr[0]!,
+            timestamp: tsPtr[0]!
         };
     }
 
@@ -345,5 +341,61 @@ export class HOCDB {
             symbols.hocdb_close(this.db);
             this.db = null;
         }
+    }
+
+    drop() {
+        if (this.db) {
+            symbols.hocdb_drop(this.db);
+            this.db = null;
+        }
+    }
+
+    static async initAsync(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
+        const workerURL = new URL("worker.ts", import.meta.url).href;
+        const worker = new Worker(workerURL);
+
+        let msgId = 0;
+        const pending = new Map();
+
+        worker.onmessage = (event) => {
+            const { id, result, error } = event.data;
+            if (pending.has(id)) {
+                const { resolve, reject } = pending.get(id);
+                pending.delete(id);
+                if (error) reject(new Error(error));
+                else resolve(result);
+            }
+        };
+
+        worker.onerror = (err) => {
+            console.error("Worker error:", err);
+        };
+
+        const callWorker = (type: string, payload: any) => {
+            return new Promise((resolve, reject) => {
+                const id = msgId++;
+                pending.set(id, { resolve, reject });
+                worker.postMessage({ id, type, payload });
+            });
+        };
+
+        // Initialize DB in worker
+        await callWorker('init', { ticker, path, schema, config });
+
+        return {
+            append: (data: any) => callWorker('append', data),
+            query: (start: bigint | number, end: bigint | number, filters: any) => callWorker('query', { start, end, filters }),
+            load: () => callWorker('load', {}),
+            getStats: (start: bigint | number, end: bigint | number, field_index: number) => callWorker('getStats', { start, end, field_index }),
+            getLatest: (field_index: number) => callWorker('getLatest', { field_index }),
+            close: async () => {
+                await callWorker('close', {});
+                worker.terminate();
+            },
+            drop: async () => {
+                await callWorker('drop', {});
+                worker.terminate();
+            }
+        };
     }
 }

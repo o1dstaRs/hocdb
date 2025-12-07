@@ -19,7 +19,7 @@ def quick_performance_test():
 
     # Create database instance
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(script_dir)))
     db_path = os.path.join(project_root, "b_python_test_data")
     db = HOCDB("PYTHON_QUICK_BENCH", db_path, schema)
 

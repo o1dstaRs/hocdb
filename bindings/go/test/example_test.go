@@ -1,20 +1,21 @@
-package hocdb
+package hocdb_test
 
 import (
 	"fmt"
+	"hocdb"
 	"os"
 )
 
 func Example() {
 	// Define schema
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeF64},
 	}
 
 	// Create test directory
-	testDir := "../../b_go_test_data"
+	testDir := "../../../b_go_test_data"
 	// os.RemoveAll(testDir) // Clean start for example
 	err := os.MkdirAll(testDir, 0755)
 	if err != nil {
@@ -23,7 +24,7 @@ func Example() {
 	// defer os.RemoveAll(testDir) // Keep data for inspection
 
 	// Create database instance
-	db, err := New("BTC_USD", testDir, schema, Options{
+	db, err := hocdb.New("BTC_USD", testDir, schema, hocdb.Options{
 		MaxFileSize:   0, // Use default
 		OverwriteFull: false,
 		FlushOnWrite:  false,
@@ -34,7 +35,7 @@ func Example() {
 	defer db.Close()
 
 	// Create and append records
-	record, err := CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
+	record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +44,7 @@ func Example() {
 		panic(err)
 	}
 
-	record, err = CreateRecordBytes(schema, int64(1620000001), 50001.0, 1.6)
+	record, err = hocdb.CreateRecordBytes(schema, int64(1620000001), 50001.0, 1.6)
 	if err != nil {
 		panic(err)
 	}

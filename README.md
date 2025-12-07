@@ -142,34 +142,50 @@ pub fn main() !void {
     defer fields.deinit();
     try fields.append(.{ .name = "timestamp", .type = .i64 });
     try fields.append(.{ .name = "price", .type = .f64 });
-    try fields.append(.{ .name = "volume", .type = .f64 });
+    try fields.append(.{ .name = "active", .type = .bool });
+    try fields.append(.{ .name = "ticker", .type = .string });
 
     const schema = hocdb.Schema{ .fields = fields.items };
 
     // Initialize DB
     var db = try hocdb.DynamicTimeSeriesDB.init("BTC_USD", "data", allocator, schema, .{});
-    defer db.deinit();
+    // defer db.deinit(); // Use drop() to delete, or deinit() to just close
 
     // Append Data
+    var ticker_buf: [128]u8 = undefined;
+    @memset(&ticker_buf, 0);
+    std.mem.copyForwards(u8, &ticker_buf, "BTC");
+
     try db.append(.{
         .timestamp = 1620000000,
         .price = 50000.0,
-        .volume = 1.5,
+        .active = true,
+        .ticker = ticker_buf,
     });
     try db.flush();
 
-    // Query Range (Zero-Copy)
-    const results = try db.query(1620000000, 1620000100, allocator);
-    defer allocator.free(results); // Frees the slice, data is zero-copy mapped
+    // Query with Filter
+    var filters = std.ArrayList(hocdb.Filter).init(allocator);
+    defer filters.deinit();
+    
+    var filter_val_str: [128]u8 = undefined;
+    @memset(&filter_val_str, 0);
+    std.mem.copyForwards(u8, &filter_val_str, "BTC");
+    
+    try filters.append(.{
+        .field_index = 3, // Index of 'ticker' field
+        .value = .{ .string = filter_val_str }
+    });
 
-    // Aggregation (Native Speed)
-    // Calculate stats for 'price' (index 1)
+    const results = try db.query(1620000000, 1620000100, filters.items, allocator);
+    defer allocator.free(results);
+
+    // Aggregation
     const stats = try db.getStats(1620000000, 1620000100, 1); 
-    std.debug.print("Min: {d}, Max: {d}, Mean: {d}\n", .{ stats.min, stats.max, stats.mean });
+    std.debug.print("Min: {d}, Max: {d}\n", .{ stats.min, stats.max });
 
-    // Get Latest Value
-    const latest = try db.getLatest(1);
-    std.debug.print("Latest Price: {d} @ {d}\n", .{ latest.value, latest.timestamp });
+    // Drop Database (Close & Delete)
+    try db.drop();
 }
 ```
 
@@ -188,28 +204,31 @@ from bindings.python.hocdb import HOCDB, Field, Type
 schema = [
     Field("timestamp", Type.I64),
     Field("price", Type.F64),
-    Field("volume", Type.F64)
+    Field("active", Type.Bool),
+    Field("ticker", Type.String)
 ]
 
 # Initialize
 db = HOCDB("BTC_USD", "data", schema)
 
 # Append
-db.append({"timestamp": 1620000000, "price": 50000.0, "volume": 1.5})
+db.append({
+    "timestamp": 1620000000, 
+    "price": 50000.0, 
+    "active": True, 
+    "ticker": "BTC"
+})
 
-# Load (Zero-Copy)
-data = db.load()
-print(f"Loaded {len(data)} records")
-
-# Query Range
-results = db.query(1620000000, 1620000100)
+# Query with Filter
+filters = {"ticker": "BTC"}
+results = db.query(1620000000, 1620000100, filters)
 
 # Aggregation
-stats = db.get_stats(1620000000, 1620000100, 1) # Field index 1 (price)
-print(f"Min: {stats.min}, Max: {stats.max}, Mean: {stats.mean}")
+stats = db.get_stats(1620000000, 1620000100, 1)
+print(f"Min: {stats.min}, Max: {stats.max}")
 
-latest = db.get_latest(1)
-print(f"Latest: {latest.value}")
+# Drop
+db.drop()
 ```
 
 ### 🚀 Node.js
@@ -221,23 +240,35 @@ cd bindings/node && npm install
 
 ```javascript
 const hocdb = require('./bindings/node');
-const db = hocdb.dbInit("BTC_USD", "data", {
-    max_file_size: 1024 * 1024 * 1024,
-    flush_on_write: false
-});
 
-hocdb.dbAppend(db, 1620000000, 50000.0, 1.5);
-const buffer = hocdb.dbLoad(db); // Zero-Copy ArrayBuffer
+// Async API (Recommended)
+async function run() {
+    const db = await hocdb.dbInitAsync("BTC_USD", "data", [
+        { name: "timestamp", type: "i64" },
+        { name: "price", type: "f64" },
+        { name: "active", type: "bool" },
+        { name: "ticker", type: "string" }
+    ]);
 
-// Query Range
-const results = db.query(1620000000n, 1620000100n);
+    await db.append({
+        timestamp: 1620000000n,
+        price: 50000.0,
+        active: true,
+        ticker: "BTC"
+    });
 
-// Aggregation
-const stats = db.getStats(1620000000n, 1620000100n, 1);
-console.log(`Min: ${stats.min}, Max: ${stats.max}`);
+    // Query with Filter
+    const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
 
-const latest = db.getLatest(1);
-console.log(`Latest: ${latest.value}`);
+    // Aggregation
+    const stats = await db.getStats(1620000000n, 1620000100n, 1);
+    console.log(`Min: ${stats.min}, Max: ${stats.max}`);
+
+    // Drop
+    await db.drop();
+}
+
+run();
 ```
 
 ### 🥟 Bun
@@ -246,17 +277,29 @@ Native FFI bindings for Bun.
 ```typescript
 import { HOCDB } from "./bindings/bun/index.ts";
 
-const db = new HOCDB("BTC_USD", "./data", schema);
-db.append(1620000000, 50000.0, 1.5);
+const db = await HOCDB.initAsync("BTC_USD", "./data", [
+    { name: "timestamp", type: "i64" },
+    { name: "price", type: "f64" },
+    { name: "active", type: "bool" },
+    { name: "ticker", type: "string" }
+]);
 
-// Query Range
-const results = db.query(1620000000n, 1620000100n);
+await db.append({
+    timestamp: 1620000000n,
+    price: 50000.0,
+    active: true,
+    ticker: "BTC"
+});
+
+// Query with Filter
+const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
+
 // Aggregation
-const stats = db.getStats(1620000000n, 1620000100n, 1);
+const stats = await db.getStats(1620000000n, 1620000100n, 1);
 console.log(stats);
 
-const latest = db.getLatest(1);
-console.log(latest);
+// Drop
+await db.drop();
 ```
 
 ### 🇨 C / C++
@@ -268,22 +311,24 @@ Direct access to the core engine.
 int main() {
     std::vector<hocdb::Field> schema = {
         {"timestamp", HOCDB_TYPE_I64},
-        {"price", HOCDB_TYPE_F64}
+        {"price", HOCDB_TYPE_F64},
+        {"active", HOCDB_TYPE_BOOL},
+        {"ticker", HOCDB_TYPE_STRING}
     };
     
     hocdb::Database db("BTC_USD", "data", schema);
-    db.append(1620000000, 50000.0);
     
-    // RAII Zero-Copy Load
-    auto data = hocdb::load_with_raii<Trade>(db);
-    // Query Range
-    auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100);
-    // Aggregation
-    auto stats = db.getStats(1620000000, 1620000100, 1); // Index 1
-    std::cout << "Min: " << stats.min << std::endl;
+    // Append (using raw bytes or helper struct)
+    // ... (append logic depends on struct layout)
 
-    auto [val, ts] = db.getLatest(1);
-    std::cout << "Latest: " << val << std::endl;
+    // Query with Filter
+    std::map<std::string, hocdb::FilterValue> filters;
+    filters["ticker"] = "BTC";
+    
+    auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100, filters);
+
+    // Drop
+    db.drop();
 }
 ```
 
@@ -307,22 +352,25 @@ func main() {
     schema := []hocdb.Field{
         {Name: "timestamp", Type: hocdb.TypeI64},
         {Name: "price", Type: hocdb.TypeF64},
+        {Name: "active", Type: hocdb.TypeBool},
+        {Name: "ticker", Type.TypeString},
     }
 
     db, _ := hocdb.New("BTC_USD", "data", schema, hocdb.Options{})
-    defer db.Close()
-
+    
     // Append
-    record, _ := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0)
+    record, _ := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, true, "BTC")
     db.Append(record)
 
-    // Query Range
-    data, _ := db.Query(1620000000, 1620000100)
+    // Query with Filter
+    filters := map[string]interface{}{
+        "ticker": "BTC",
+    }
+    data, _ := db.Query(1620000000, 1620000100, filters)
     fmt.Printf("Queried %d bytes\n", len(data))
 
-    // Aggregation
-    stats, _ := db.GetStats(1620000000, 1620000100, 1)
-    fmt.Printf("Min: %f\n", stats.Min)
+    // Drop
+    db.Drop()
 }
 ```
 

@@ -34,7 +34,7 @@ try {
 const addon = require(nodePath);
 
 module.exports = {
-    dbInit: (ticker, path, schema, config) => {
+    dbInit: (ticker, dirPath, schema, config) => {
         if (!schema || !Array.isArray(schema)) {
             throw new Error("Schema must be an array of field definitions");
         }
@@ -56,7 +56,7 @@ module.exports = {
             }
         }
 
-        const db = addon.dbInit(ticker, path, schema, config);
+        const db = addon.dbInit(ticker, dirPath, schema, config);
 
         // Return a wrapper object that handles data packing
         return {
@@ -159,7 +159,54 @@ module.exports = {
 
             close: () => {
                 addon.dbClose(db);
+            },
+
+            drop: () => {
+                addon.dbDrop(db);
             }
         };
+    },
+
+    dbInitAsync: (ticker, dirPath, schema, config) => {
+        const { Worker } = require('worker_threads');
+        const worker = new Worker(path.join(__dirname, 'worker.js'));
+
+        let msgId = 0;
+        const pending = new Map();
+
+        worker.on('message', (msg) => {
+            const { id, result, error } = msg;
+            if (pending.has(id)) {
+                const { resolve, reject } = pending.get(id);
+                pending.delete(id);
+                if (error) reject(new Error(error));
+                else resolve(result);
+            }
+        });
+
+        worker.on('error', (err) => {
+            console.error("Worker error:", err);
+        });
+
+        const callWorker = (type, payload) => {
+            return new Promise((resolve, reject) => {
+                const id = msgId++;
+                pending.set(id, { resolve, reject });
+                worker.postMessage({ id, type, payload });
+            });
+        };
+
+        // Initialize DB in worker
+        return callWorker('init', { ticker, path: dirPath, schema, config }).then(() => {
+            return {
+                append: (data) => callWorker('append', data),
+                query: (start, end, filters) => callWorker('query', { start, end, filters }),
+                load: () => callWorker('load', {}),
+                getStats: (start, end, field_index) => callWorker('getStats', { start, end, field_index }),
+                getLatest: (field_index) => callWorker('getLatest', { field_index }),
+                close: () => callWorker('close', {}).then(() => worker.terminate()),
+                drop: () => callWorker('drop', {}).then(() => worker.terminate())
+            };
+        });
     },
 };

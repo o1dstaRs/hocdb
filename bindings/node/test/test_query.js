@@ -1,9 +1,9 @@
-const hocdb = require('./index.js');
+const hocdb = require('../index.js');
 const path = require('path');
 const fs = require('fs');
 
 const TICKER = "TEST_QUERY_NODE";
-const DATA_DIR = path.join(__dirname, "test_query_node_data");
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_query_node_data');
 
 // Cleanup
 if (fs.existsSync(DATA_DIR)) {

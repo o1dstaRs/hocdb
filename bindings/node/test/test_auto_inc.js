@@ -1,10 +1,10 @@
-const hocdb = require('./index.js');
+const hocdb = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
 const TICKER = "TEST_AUTO_INC_NODE";
-const DATA_DIR = path.join(__dirname, '..', '..', 'b_node_test_auto_inc');
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_auto_inc');
 
 // Cleanup
 if (fs.existsSync(DATA_DIR)) {

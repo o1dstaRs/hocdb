@@ -173,6 +173,13 @@ export fn hocdb_close(db_ptr: *anyopaque) void {
     std.heap.c_allocator.destroy(db);
 }
 
+export fn hocdb_drop(db_ptr: *anyopaque) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    db.drop() catch return -1;
+    std.heap.c_allocator.destroy(db);
+    return 0;
+}
+
 export fn hocdb_free(ptr: ?*anyopaque) void {
     if (ptr) |p| {
         std.c.free(p);

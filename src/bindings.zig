@@ -469,6 +469,22 @@ fn dbClose(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return null;
 }
 
+// dbDrop(db: external): void
+fn dbDrop(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
+    const args = getArgs(env, info, 1) catch return throwError(env, "Expected 1 argument");
+
+    var db_ptr: ?*anyopaque = null;
+    _ = napi_get_value_external(env, args[0], &db_ptr);
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
+
+    db.drop() catch |err| {
+        return throwError(env, @errorName(err));
+    };
+    std.heap.c_allocator.destroy(db);
+
+    return null;
+}
+
 // --- Module Registration ---
 
 export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value {
@@ -480,6 +496,7 @@ export fn napi_register_module_v1(env: napi_env, exports: napi_value) napi_value
         .{ .utf8name = "dbGetStats", .name = null, .method = dbGetStats, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbGetLatest", .name = null, .method = dbGetLatest, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
         .{ .utf8name = "dbClose", .name = null, .method = dbClose, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
+        .{ .utf8name = "dbDrop", .name = null, .method = dbDrop, .getter = null, .setter = null, .value = null, .attributes = .default, .data = null },
     };
 
     _ = napi_define_properties(env, exports, descriptors.len, &descriptors);

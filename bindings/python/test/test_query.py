@@ -3,7 +3,7 @@ import shutil
 from hocdb_python import HOCDB, HOCDBField, FieldTypes
 
 TICKER = "TEST_QUERY_PYTHON"
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "b_python_test_data")
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "b_python_test_data")
 
 # Cleanup
 if os.path.exists(DATA_DIR):

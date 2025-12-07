@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include "hocdb.h"
+#include "../hocdb.h"
 
 // Helper to clean up directory
 void cleanup_dir(const char* path) {

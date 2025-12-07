@@ -1,7 +1,8 @@
-package hocdb
+package hocdb_test
 
 import (
 	"encoding/binary"
+	"hocdb"
 	"math"
 	"os"
 	"testing"
@@ -9,14 +10,14 @@ import (
 
 func TestHOCDB(t *testing.T) {
 	// Define schema
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeF64},
 	}
 
 	// Create test directory
-	testDir := "../../b_go_test_data"
+	testDir := "../../../b_go_test_data"
 	os.RemoveAll(testDir)
 	err := os.MkdirAll(testDir, 0755)
 	if err != nil && !os.IsExist(err) {
@@ -24,7 +25,7 @@ func TestHOCDB(t *testing.T) {
 	}
 
 	// Create database instance
-	db, err := New("TEST_BTC_USD", testDir, schema, Options{
+	db, err := hocdb.New("TEST_BTC_USD", testDir, schema, hocdb.Options{
 		MaxFileSize:   0, // Use default
 		OverwriteFull: false,
 		FlushOnWrite:  false,
@@ -35,7 +36,7 @@ func TestHOCDB(t *testing.T) {
 	defer db.Close()
 
 	// Create and append a record
-	record, err := CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
+	record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, 1.5)
 	if err != nil {
 		t.Fatalf("Failed to create record: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestHOCDB(t *testing.T) {
 	}
 
 	// Append another record
-	record, err = CreateRecordBytes(schema, int64(1620000001), 50001.0, 1.6)
+	record, err = hocdb.CreateRecordBytes(schema, int64(1620000001), 50001.0, 1.6)
 	if err != nil {
 		t.Fatalf("Failed to create record: %v", err)
 	}
@@ -112,14 +113,14 @@ func TestHOCDB(t *testing.T) {
 }
 
 func TestCreateRecordBytes(t *testing.T) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeU64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeU64},
 	}
 
 	// Test creating a record with mixed types
-	record, err := CreateRecordBytes(schema, int64(1620000000), 50000.0, uint64(1500))
+	record, err := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, uint64(1500))
 	if err != nil {
 		t.Fatalf("Failed to create record: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestCreateRecordBytes(t *testing.T) {
 	}
 
 	// Test error case: wrong number of values
-	_, err = CreateRecordBytes(schema, int64(1620000000), 50000.0) // Missing one value
+	_, err = hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0) // Missing one value
 	if err == nil {
 		t.Error("Expected error for mismatched schema/value count")
 	}
@@ -141,18 +142,18 @@ func TestCreateRecordBytes(t *testing.T) {
 }
 
 func TestQueryFiltering(t *testing.T) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "event", Type: TypeString},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "event", Type: hocdb.TypeString},
 	}
 
-	testDir := "../../b_go_test_data_filter"
+	testDir := "../../../b_go_test_data_filter"
 	os.RemoveAll(testDir)
 	os.MkdirAll(testDir, 0755)
 	defer os.RemoveAll(testDir)
 
-	db, err := New("FILTER_TEST", testDir, schema, Options{})
+	db, err := hocdb.New("FILTER_TEST", testDir, schema, hocdb.Options{})
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -160,13 +161,13 @@ func TestQueryFiltering(t *testing.T) {
 
 	// Append records
 	// 1. Deposit
-	rec1, _ := CreateRecordBytes(schema, int64(100), 100.0, "deposit")
+	rec1, _ := hocdb.CreateRecordBytes(schema, int64(100), 100.0, "deposit")
 	db.Append(rec1)
 	// 2. Withdraw
-	rec2, _ := CreateRecordBytes(schema, int64(200), 50.0, "withdraw")
+	rec2, _ := hocdb.CreateRecordBytes(schema, int64(200), 50.0, "withdraw")
 	db.Append(rec2)
 	// 3. Deposit
-	rec3, _ := CreateRecordBytes(schema, int64(300), 200.0, "deposit")
+	rec3, _ := hocdb.CreateRecordBytes(schema, int64(300), 200.0, "deposit")
 	db.Append(rec3)
 
 	db.Flush()
@@ -189,25 +190,25 @@ func TestQueryFiltering(t *testing.T) {
 }
 
 func TestAutoIncrement(t *testing.T) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "value", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "value", Type: hocdb.TypeF64},
 	}
 
-	testDir := "../../b_go_test_auto_inc"
+	testDir := "../../../b_go_test_auto_inc"
 	os.RemoveAll(testDir)
 	os.MkdirAll(testDir, 0755)
 	defer os.RemoveAll(testDir)
 
 	// 1. Initialize with AutoIncrement = true
-	db, err := New("TEST_AUTO_INC", testDir, schema, Options{AutoIncrement: true})
+	db, err := hocdb.New("TEST_AUTO_INC", testDir, schema, hocdb.Options{AutoIncrement: true})
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Append 10 records with dummy timestamp
 	for i := 0; i < 10; i++ {
-		record, _ := CreateRecordBytes(schema, int64(0), float64(i))
+		record, _ := hocdb.CreateRecordBytes(schema, int64(0), float64(i))
 		err := db.Append(record)
 		if err != nil {
 			t.Fatalf("Failed to append: %v", err)
@@ -216,7 +217,7 @@ func TestAutoIncrement(t *testing.T) {
 	db.Close()
 
 	// 2. Reopen and verify
-	db, err = New("TEST_AUTO_INC", testDir, schema, Options{AutoIncrement: true})
+	db, err = hocdb.New("TEST_AUTO_INC", testDir, schema, hocdb.Options{AutoIncrement: true})
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -253,19 +254,19 @@ func TestAutoIncrement(t *testing.T) {
 }
 
 func BenchmarkAppend(b *testing.B) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeF64},
 	}
-	testDir := "../../b_go_test_data"
+	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
 	// defer os.RemoveAll(testDir)
 
-	db, _ := New("BENCH_APPEND", testDir, schema, Options{})
+	db, _ := hocdb.New("BENCH_APPEND", testDir, schema, hocdb.Options{})
 	defer db.Close()
 
-	record, _ := CreateRecordBytes(schema, int64(100), 10.0, 20.0)
+	record, _ := hocdb.CreateRecordBytes(schema, int64(100), 10.0, 20.0)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -274,19 +275,19 @@ func BenchmarkAppend(b *testing.B) {
 }
 
 func BenchmarkLoad(b *testing.B) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeF64},
 	}
-	testDir := "../../b_go_test_data"
+	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
 	// defer os.RemoveAll(testDir)
 
-	db, _ := New("BENCH_LOAD", testDir, schema, Options{})
+	db, _ := hocdb.New("BENCH_LOAD", testDir, schema, hocdb.Options{})
 	defer db.Close()
 
-	record, _ := CreateRecordBytes(schema, int64(100), 10.0, 20.0)
+	record, _ := hocdb.CreateRecordBytes(schema, int64(100), 10.0, 20.0)
 	for i := 0; i < 10000; i++ {
 		db.Append(record)
 	}
@@ -299,21 +300,21 @@ func BenchmarkLoad(b *testing.B) {
 }
 
 func BenchmarkGetStats(b *testing.B) {
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "volume", Type: TypeF64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "volume", Type: hocdb.TypeF64},
 	}
-	testDir := "../../b_go_test_data"
+	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
 	// defer os.RemoveAll(testDir)
 
-	db, _ := New("BENCH_STATS", testDir, schema, Options{})
+	db, _ := hocdb.New("BENCH_STATS", testDir, schema, hocdb.Options{})
 	defer db.Close()
 
 	// Append 100k records
 	for i := 0; i < 100000; i++ {
-		record, _ := CreateRecordBytes(schema, int64(i), float64(i), float64(i))
+		record, _ := hocdb.CreateRecordBytes(schema, int64(i), float64(i), float64(i))
 		db.Append(record)
 	}
 	db.Flush()

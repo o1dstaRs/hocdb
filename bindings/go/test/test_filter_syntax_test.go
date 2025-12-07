@@ -1,26 +1,27 @@
-package hocdb
+package hocdb_test
 
 import (
 	"fmt"
+	"hocdb"
 	"os"
 	"testing"
 )
 
 func TestFilterSyntax(t *testing.T) {
 	ticker := "TEST_GO_FILTER"
-	dataDir := "../../b_go_test_filter_syntax"
+	dataDir := "../../../b_go_test_data_filter_syntax"
 
 	// Cleanup
 	os.RemoveAll(dataDir)
 	defer os.RemoveAll(dataDir)
 
-	schema := []Field{
-		{Name: "timestamp", Type: TypeI64},
-		{Name: "price", Type: TypeF64},
-		{Name: "event", Type: TypeI64},
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+		{Name: "event", Type: hocdb.TypeI64},
 	}
 
-	db, err := New(ticker, dataDir, schema, Options{})
+	db, err := hocdb.New(ticker, dataDir, schema, hocdb.Options{})
 	if err != nil {
 		t.Fatalf("Failed to init DB: %v", err)
 	}
@@ -28,13 +29,13 @@ func TestFilterSyntax(t *testing.T) {
 
 	// Append data
 	// 1. event = 0
-	rec1, _ := CreateRecordBytes(schema, int64(100), 1.0, int64(0))
+	rec1, _ := hocdb.CreateRecordBytes(schema, int64(100), 1.0, int64(0))
 	db.Append(rec1)
 	// 2. event = 1
-	rec2, _ := CreateRecordBytes(schema, int64(200), 2.0, int64(1))
+	rec2, _ := hocdb.CreateRecordBytes(schema, int64(200), 2.0, int64(1))
 	db.Append(rec2)
 	// 3. event = 2
-	rec3, _ := CreateRecordBytes(schema, int64(300), 3.0, int64(2))
+	rec3, _ := hocdb.CreateRecordBytes(schema, int64(300), 3.0, int64(2))
 	db.Append(rec3)
 
 	// Query with map filter: { "event": 1 }

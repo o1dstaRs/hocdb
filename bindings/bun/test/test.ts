@@ -1,9 +1,9 @@
-import { HOCDB } from "./index.ts";
+import { HOCDB, FieldDef } from "../index.ts";
 import { join } from "path";
 import { rmSync, existsSync } from "fs";
 
 const TICKER = "TEST_BUN";
-const DATA_DIR = join(import.meta.dir, "..", "..", "b_bun_test_data");
+const DATA_DIR = join(import.meta.dir, "..", "..", "..", "b_bun_test_data");
 
 // Cleanup
 if (existsSync(DATA_DIR)) {
@@ -29,8 +29,8 @@ for (let i = 0; i < 1_000_000; i++) {
 
 const end = performance.now();
 const duration = (end - start) / 1000; // seconds
-console.log(`Write Time: ${(end - start).toFixed(2)}ms`);
-console.log(`Write Throughput: ${Math.floor(1_000_000 / duration)} ops/sec`);
+console.log(`Write Time: ${(end - start).toFixed(2)} ms`);
+console.log(`Write Throughput: ${Math.floor(1_000_000 / duration)} ops / sec`);
 
 console.log("Flushing...");
 db.flush();
@@ -40,14 +40,14 @@ const loadStart = performance.now();
 const data = db.load();
 const loadEnd = performance.now();
 
-console.log(`Load Time: ${(loadEnd - loadStart).toFixed(4)}ms`);
-console.log(`Records Loaded: ${data.length}`);
+console.log(`Load Time: ${(loadEnd - loadStart).toFixed(4)} ms`);
+console.log(`Records Loaded: ${data.length} `);
 
 if (data.length > 0) {
     const first = data[0];
     const last = data[data.length - 1];
-    console.log(`First Record: TS=${first.timestamp}, USD=${first.usd}, VOL=${first.volume}`);
-    console.log(`Last Record: TS=${last.timestamp}, USD=${last.usd}, VOL=${last.volume}`);
+    console.log(`First Record: TS = ${first.timestamp}, USD = ${first.usd}, VOL = ${first.volume} `);
+    console.log(`Last Record: TS = ${last.timestamp}, USD = ${last.usd}, VOL = ${last.volume} `);
 
     if (Number(first.timestamp) !== 0 || first.usd !== 0 || first.volume !== 0) {
         throw new Error("First record mismatch!");
@@ -82,23 +82,23 @@ dbRing.append({ timestamp: 200n, usd: 2.0, volume: 2.0 });
 dbRing.append({ timestamp: 300n, usd: 3.0, volume: 3.0 });
 
 const ringData = dbRing.load();
-console.log(`Records in Ring Buffer: ${ringData.length}`);
+console.log(`Records in Ring Buffer: ${ringData.length} `);
 
 if (ringData.length !== 2) {
-    throw new Error(`Expected 2 records in ring buffer, got ${ringData.length}`);
+    throw new Error(`Expected 2 records in ring buffer, got ${ringData.length} `);
 }
 
 const rec0 = ringData[0];
 const rec1 = ringData[1];
 
-console.log(`Record 0 TS: ${rec0.timestamp}`);
-console.log(`Record 1 TS: ${rec1.timestamp}`);
+console.log(`Record 0 TS: ${rec0.timestamp} `);
+console.log(`Record 1 TS: ${rec1.timestamp} `);
 
 if (Number(rec0.timestamp) !== 200) {
-    throw new Error(`Expected Record 0 to be TS 200, got ${rec0.timestamp}`);
+    throw new Error(`Expected Record 0 to be TS 200, got ${rec0.timestamp} `);
 }
 if (Number(rec1.timestamp) !== 300) {
-    throw new Error(`Expected Record 1 to be TS 300, got ${rec1.timestamp}`);
+    throw new Error(`Expected Record 1 to be TS 300, got ${rec1.timestamp} `);
 }
 
 dbRing.close();
@@ -132,8 +132,8 @@ console.log("\nRunning Flush-on-Write Test...");
         });
     }
     const end = performance.now();
-    console.log(`Appended ${count} records with flush_on_write=true in ${(end - start).toFixed(2)}ms`);
-    console.log(`Throughput: ${Math.floor(count / ((end - start) / 1000))} ops/sec`);
+    console.log(`Appended ${count} records with flush_on_write = true in ${(end - start).toFixed(2)} ms`);
+    console.log(`Throughput: ${Math.floor(count / ((end - start) / 1000))} ops / sec`);
 
     db.close();
     console.log("✅ Flush-on-Write Test Passed!");
@@ -172,16 +172,16 @@ console.log("\nRunning Filtering Test...");
     // Filter by event = 1
     const results = db.query(0n, 1000n, { event: 1n });
 
-    console.log(`Filtered results count: ${results.length}`);
+    console.log(`Filtered results count: ${results.length} `);
 
     if (results.length !== 2) {
-        throw new Error(`Expected 2 records, got ${results.length}`);
+        throw new Error(`Expected 2 records, got ${results.length} `);
     }
     if (results[0].timestamp !== 100n) {
-        throw new Error(`Expected first record ts 100, got ${results[0].timestamp}`);
+        throw new Error(`Expected first record ts 100, got ${results[0].timestamp} `);
     }
     if (results[1].timestamp !== 300n) {
-        throw new Error(`Expected second record ts 300, got ${results[1].timestamp}`);
+        throw new Error(`Expected second record ts 300, got ${results[1].timestamp} `);
     }
 
     db.close();

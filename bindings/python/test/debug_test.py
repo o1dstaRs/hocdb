@@ -19,7 +19,7 @@ def debug_test():
 
     # Create database instance in test data directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(script_dir)))
     db_path = os.path.join(project_root, "b_python_test_data")
     os.makedirs(db_path, exist_ok=True)
 

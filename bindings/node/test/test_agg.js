@@ -1,40 +1,42 @@
-import { HOCDB } from "./index.ts";
-import { rmSync, existsSync } from "fs";
+const hocdb = require('../index.js');
+const path = require('path');
+const fs = require('fs');
 
-import { join } from "path";
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_agg');
+const TICKER = 'TEST_NODE_AGG';
 
-const TEST_DIR = join(import.meta.dir, "..", "..", "b_bun_test_data");
-const TICKER = "TEST_BUN_AGG";
-
-if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
+// Cleanup
+if (fs.existsSync(DATA_DIR)) {
+    fs.rmSync(DATA_DIR, { recursive: true, force: true });
 }
 
 const schema = [
-    { name: "timestamp", type: "i64" as const },
-    { name: "value", type: "f64" as const }
+    { name: 'timestamp', type: 'i64' },
+    { name: 'value', type: 'f64' }
 ];
 
-const db = new HOCDB(TICKER, TEST_DIR, schema, {
+const db = hocdb.dbInit(TICKER, TEST_DIR, schema, {
     max_file_size: 1024 * 1024,
     flush_on_write: true
 });
 
 console.log("Appending data...");
+// 100: 10.0
+// 200: 20.0
+// 300: 30.0
 db.append({ timestamp: 100n, value: 10.0 });
 db.append({ timestamp: 200n, value: 20.0 });
 db.append({ timestamp: 300n, value: 30.0 });
 
 console.log("Testing getLatest...");
-const latest = db.getLatest(1); // value index = 1
+const latest = db.getLatest(1n); // value index = 1
 console.log("Latest:", latest);
-
 if (latest.value !== 30.0 || latest.timestamp !== 300n) {
     throw new Error(`getLatest failed: expected {value: 30.0, timestamp: 300}, got ${JSON.stringify(latest, (key, value) => typeof value === 'bigint' ? value.toString() : value)}`);
 }
 
 console.log("Testing getStats...");
-const stats = db.getStats(0n, 400n, 1);
+const stats = db.getStats(0n, 400n, 1n);
 console.log("Stats:", stats);
 
 if (stats.count !== 3n) throw new Error(`Count mismatch: expected 3, got ${stats.count}`);
@@ -44,4 +46,4 @@ if (stats.sum !== 60.0) throw new Error(`Sum mismatch: expected 60.0, got ${stat
 if (stats.mean !== 20.0) throw new Error(`Mean mismatch: expected 20.0, got ${stats.mean}`);
 
 db.close();
-console.log("Bun Aggregation Test Passed!");
+console.log("Node.js Aggregation Test Passed!");

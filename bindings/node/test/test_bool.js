@@ -1,10 +1,10 @@
-const { dbInit } = require('./index');
+const { dbInit } = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 
-const TEST_DIR = path.join(__dirname, '..', '..', 'b_node_test_data', 'b_node_test_bool');
-if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
-fs.mkdirSync(TEST_DIR, { recursive: true });
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_bool');
+if (fs.existsSync(DATA_DIR)) fs.rmSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const schema = [
     { name: 'timestamp', type: 'i64' },

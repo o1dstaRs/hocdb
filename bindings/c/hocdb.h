@@ -126,6 +126,12 @@ void hocdb_free(void* ptr);
 int64_t hocdb_get_field_index(HOCDBHandle handle, const char* field_name);
 
 /**
+ * Close the database and delete the data file
+ * @param handle Database handle
+ */
+void hocdb_drop(HOCDBHandle handle);
+
+/**
  * Close and free the database handle
  * @param handle Database handle to close
  */

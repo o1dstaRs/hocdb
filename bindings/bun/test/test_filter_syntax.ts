@@ -1,9 +1,9 @@
-import { HOCDB, FieldDef } from "./index";
+import { HOCDB } from "../index";
 import { existsSync, rmSync } from "fs";
 import { join } from "path";
 
 const TICKER = "TEST_BUN_FILTER";
-const DATA_DIR = join(import.meta.dir, "..", "..", "b_bun_test_filter_syntax");
+const DATA_DIR = join(import.meta.dir, "..", "..", "..", "b_bun_test_filter_syntax");
 
 if (existsSync(DATA_DIR)) {
     rmSync(DATA_DIR, { recursive: true, force: true });

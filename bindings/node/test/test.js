@@ -1,9 +1,9 @@
-const hocdb = require('./index.js');
+const hocdb = require('../index.js');
 const fs = require('fs');
 
 const path = require('path');
 const TICKER = "TEST_NODE";
-const DATA_DIR = path.join(__dirname, '..', '..', 'b_node_test_data');
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_data');
 
 // Cleanup
 if (fs.existsSync(DATA_DIR)) {
@@ -102,7 +102,7 @@ console.log("✅ Test Passed!");
 // --- Ring Buffer Test ---
 console.log("\nRunning Ring Buffer Test...");
 const RING_TICKER = "TEST_RING";
-const RING_DATA_DIR = path.join(__dirname, '..', '..', 'b_node_ring_test');
+const RING_DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_ring_test');
 
 if (fs.existsSync(RING_DATA_DIR)) {
     fs.rmSync(RING_DATA_DIR, { recursive: true, force: true });
@@ -174,7 +174,7 @@ if (fs.existsSync(RING_DATA_DIR)) {
 // --- Flush-on-Write Test ---
 console.log("\nRunning Flush-on-Write Test...");
 {
-    const testDir = path.join(__dirname, '..', '..', 'b_node_test_data_flush');
+    const testDir = path.join(__dirname, '..', '..', '..', 'b_node_test_data_flush');
     if (fs.existsSync(testDir)) {
         fs.rmSync(testDir, { recursive: true, force: true });
     }

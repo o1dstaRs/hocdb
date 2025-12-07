@@ -169,6 +169,7 @@ pub const DynamicTimeSeriesDB = struct {
     timestamp_offset: usize,
     schema_hash: u64,
     fields: []FieldInfo, // Store schema fields
+    full_path: []const u8,
 
     allocator: std.mem.Allocator,
 
@@ -192,22 +193,24 @@ pub const DynamicTimeSeriesDB = struct {
         const filename = try std.fmt.allocPrint(allocator, "{s}.bin", .{ticker});
         defer allocator.free(filename);
 
+        const full_path = try std.fs.path.join(allocator, &[_][]const u8{ dir_path, filename });
+        errdefer allocator.free(full_path);
+
         var file: std.fs.File = undefined;
         var retry_count: usize = 0;
         while (retry_count < 3) : (retry_count += 1) {
-            file = dir.createFile(filename, .{
-                .read = true,
-                .truncate = false, // Don't overwrite existing data
-            }) catch |err| {
-                if (err == error.FileNotFound or err == error.BadPathName or err == error.AccessDenied) {
-                    // Directory might have been deleted or handle invalid?
-                    // Try to reopen directory
-                    dir.close();
-                    dir = try std.fs.cwd().makeOpenPath(dir_path, .{});
-                    continue;
+            if (std.fs.cwd().openFile(full_path, .{ .mode = .read_write })) |f| {
+                file = f;
+            } else |err| {
+                if (err == error.FileNotFound) {
+                    file = try std.fs.cwd().createFile(full_path, .{
+                        .read = true,
+                        .truncate = false,
+                    });
+                } else {
+                    return err;
                 }
-                return err;
-            };
+            }
             break;
         } else {
             return error.FileNotFound; // Failed after retries
@@ -403,6 +406,7 @@ pub const DynamicTimeSeriesDB = struct {
             .fields = fields_copy,
             .allocator = allocator,
             .is_wrapped = is_wrapped,
+            .full_path = full_path,
         };
     }
 
@@ -420,6 +424,24 @@ pub const DynamicTimeSeriesDB = struct {
         self.file.close();
         for (self.fields) |f| self.allocator.free(f.name);
         self.allocator.free(self.fields);
+        self.allocator.free(self.full_path);
+    }
+
+    pub fn drop(self: *Self) !void {
+        // Close the file first
+        self.file.unlock();
+        self.file.close();
+
+        // Delete the file
+        try std.fs.cwd().deleteFile(self.full_path);
+
+        // Free resources (similar to deinit but we don't close file again)
+        for (self.fields) |f| self.allocator.free(f.name);
+        self.allocator.free(self.fields);
+        self.allocator.free(self.full_path);
+
+        // We should probably mark self as invalid or something, but the caller should destroy the struct.
+        // The caller (C binding) will call allocator.destroy(db).
     }
 
     pub fn flush(self: *Self) !void {

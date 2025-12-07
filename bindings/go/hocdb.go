@@ -428,6 +428,14 @@ func (db *DB) Close() {
 	}
 }
 
+// Drop closes the database and deletes the data file
+func (db *DB) Drop() {
+	if db.handle != nil {
+		C.hocdb_drop(db.handle)
+		db.handle = nil
+	}
+}
+
 // CreateRecordBytes creates raw bytes for a record based on the schema and values
 // This function helps convert Go values to the required binary format
 func CreateRecordBytes(schema []Field, values ...interface{}) ([]byte, error) {

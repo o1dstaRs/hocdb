@@ -1,4 +1,4 @@
-#include "hocdb.h"
+#include "../hocdb.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

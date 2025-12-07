@@ -1,4 +1,4 @@
-#include "hocdb.h"
+#include "../hocdb.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +28,7 @@ int main() {
     // Test 1: Initialize database
     printf("1. Testing initialization...\n");
     // hocdb_init(ticker, path, schema, schema_len, max_size, overwrite, flush)
-    HOCDBHandle db = hocdb_init("SIMPLE_TEST", "b_c_test_data/simple", schema, 3, 1024*1024, 1, 1);
+    HOCDBHandle db = hocdb_init("SIMPLE_TEST", "b_c_test_data/simple", schema, 3, 1024*1024, 1, 1, 0);
     if (!db) {
         printf("Failed to initialize database\n");
         return 1;

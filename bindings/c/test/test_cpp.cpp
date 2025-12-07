@@ -2,7 +2,7 @@
 #include <vector>
 #include <cassert>
 #include <filesystem>
-#include "hocdb_cpp.h"
+#include "../hocdb_cpp.h"
 
 using namespace hocdb;
 

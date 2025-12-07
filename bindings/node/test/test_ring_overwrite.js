@@ -1,8 +1,9 @@
-const { dbInit } = require('./index');
+```javascript
+const hocdb = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 
-const TEST_DIR = path.join(__dirname, '..', '..', 'b_node_test_data', 'b_node_test_ring_overwrite');
+const TEST_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_ring_overwrite');
 if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
 fs.mkdirSync(TEST_DIR, { recursive: true });
 
@@ -41,7 +42,7 @@ append(5, 50);
 // Verify initial state
 let results = db.query(0n, 100n);
 console.log('Initial state (1-5):', results.map(r => Number(r.timestamp)));
-if (results.length !== 5) throw new Error(`Expected 5 records, got ${results.length}`);
+if (results.length !== 5) throw new Error(`Expected 5 records, got ${ results.length } `);
 if (results[0].timestamp !== 1n) throw new Error('Expected first record to be 1');
 
 // 2. Write 6 (should overwrite 1)
@@ -73,7 +74,7 @@ console.log('Querying range 1-6 (expecting 3, 4, 5)...');
 results = db.query(1n, 6n);
 console.log('Results 1-6:', results.map(r => Number(r.timestamp)));
 // Expect: 3, 4, 5
-if (results.length !== 3) throw new Error(`Expected 3 records, got ${results.length}`);
+if (results.length !== 3) throw new Error(`Expected 3 records, got ${ results.length } `);
 if (results[0].timestamp !== 3n) throw new Error('Expected 3');
 if (results[1].timestamp !== 4n) throw new Error('Expected 4');
 if (results[2].timestamp !== 5n) throw new Error('Expected 5');
@@ -84,7 +85,7 @@ console.log('Querying range 2-7 (expecting 3, 4, 5, 6)...');
 results = db.query(2n, 7n);
 console.log('Results 2-7:', results.map(r => Number(r.timestamp)));
 // Expect: 3, 4, 5, 6
-if (results.length !== 4) throw new Error(`Expected 4 records, got ${results.length}`);
+if (results.length !== 4) throw new Error(`Expected 4 records, got ${ results.length } `);
 if (results[0].timestamp !== 3n) throw new Error('Expected 3');
 if (results[3].timestamp !== 6n) throw new Error('Expected 6');
 
@@ -94,7 +95,7 @@ console.log('Querying range 3-8 (expecting 3, 4, 5, 6, 7)...');
 results = db.query(3n, 8n);
 console.log('Results 3-8:', results.map(r => Number(r.timestamp)));
 // Expect: 3, 4, 5, 6, 7
-if (results.length !== 5) throw new Error(`Expected 5 records, got ${results.length}`);
+if (results.length !== 5) throw new Error(`Expected 5 records, got ${ results.length } `);
 if (results[0].timestamp !== 3n) throw new Error('Expected 3');
 if (results[4].timestamp !== 7n) throw new Error('Expected 7');
 

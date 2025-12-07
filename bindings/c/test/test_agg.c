@@ -1,4 +1,4 @@
-#include "hocdb.h"
+#include "../hocdb.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>

@@ -51,31 +51,33 @@ jobs:
       run: zig build bench
 
     - name: Run Python Tests
-      run: python3 bindings/python/test_query.py
+      run: |
+        export PYTHONPATH=$(pwd)/bindings/python
+        python3 bindings/python/test/test_query.py
 
     - name: Run Go Tests
       run: |
         export DYLD_LIBRARY_PATH=$(pwd)/zig-out/lib:$DYLD_LIBRARY_PATH
         export LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH
-        go test -v bindings/go/hocdb_test.go bindings/go/hocdb.go
+        cd bindings/go && go test -v ./test/...
 
     - name: Run C++ Tests
       run: |
-        clang++ -std=c++17 bindings/c/test_cpp.cpp -o bindings/c/test_cpp -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        bindings/c/test_cpp
-        rm bindings/c/test_cpp
+        clang++ -std=c++17 bindings/c/test/test_cpp.cpp -o bindings/c/test/test_cpp -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        bindings/c/test/test_cpp
+        rm bindings/c/test/test_cpp
 
     - name: Run C Recovery Test
       run: |
-        clang -o bindings/c/test_auto_inc_recovery bindings/c/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        ./bindings/c/test_auto_inc_recovery
-        rm bindings/c/test_auto_inc_recovery
+        clang -o bindings/c/test/test_auto_inc_recovery bindings/c/test/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        ./bindings/c/test/test_auto_inc_recovery
+        rm bindings/c/test/test_auto_inc_recovery
 
     - name: Build Node.js Bindings
       run: zig build bindings
 
     - name: Run Node.js Tests
-      run: node bindings/node/test.js
+      run: node bindings/node/test/test.js
 
     - name: Run Bun Tests
-      run: bun run bindings/bun/test.ts
+      run: bun run bindings/bun/test/test.ts
