@@ -20,38 +20,30 @@ def test_auto_increment():
     
     # Append records with dummy timestamp
     for i in range(10):
-        # Create record bytes manually
-        # timestamp (8 bytes) + value (8 bytes)
-        # We put 0 for timestamp
-        record = struct.pack('<qd', 0, float(i))
-        db.append(record)
+        # Pass values directly - timestamp (ignored due to auto_inc) + value
+        db.append(0, float(i))
         
     # Load and verify
     data = db.load()
-    assert len(data) == 10 * 16
+    assert len(data) == 10
     
-    for i in range(10):
-        offset = i * 16
-        ts, val = struct.unpack_from('<qd', data, offset)
-        assert ts == i + 1
-        assert val == float(i)
+    for i, record in enumerate(data):
+        assert record['timestamp'] == i + 1
+        assert record['value'] == float(i)
         
     db.close()
     
     # Reopen and append more
     db = HOCDB(ticker, path, schema, auto_increment=True)
     for i in range(10, 15):
-        record = struct.pack('<qd', 999, float(i))
-        db.append(record)
+        db.append(999, float(i))
         
     data = db.load()
-    assert len(data) == 15 * 16
+    assert len(data) == 15
     
-    for i in range(15):
-        offset = i * 16
-        ts, val = struct.unpack_from('<qd', data, offset)
-        assert ts == i + 1
-        assert val == float(i)
+    for i, record in enumerate(data):
+        assert record['timestamp'] == i + 1
+        assert record['value'] == float(i)
         
     db.close()
     shutil.rmtree(path)

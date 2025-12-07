@@ -2,9 +2,9 @@ const { dbInit } = require('./index');
 const fs = require('fs');
 const path = require('path');
 
-const TEST_DIR = path.join(__dirname, 'b_node_test_ring_overwrite');
+const TEST_DIR = path.join(__dirname, '..', '..', 'b_node_test_data', 'b_node_test_ring_overwrite');
 if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
-fs.mkdirSync(TEST_DIR);
+fs.mkdirSync(TEST_DIR, { recursive: true });
 
 const schema = [
     { name: 'timestamp', type: 'i64' },

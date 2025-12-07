@@ -16,13 +16,10 @@ schema = [
 db = HOCDB(TICKER, TEST_DIR, schema, flush_on_write=True)
 
 print("Appending data...")
-def create_record(ts, val):
-    import struct
-    return struct.pack('<qd', ts, val)
-
-db.append(create_record(100, 10.0))
-db.append(create_record(200, 20.0))
-db.append(create_record(300, 30.0))
+print("Appending data...")
+db.append(100, 10.0)
+db.append(200, 20.0)
+db.append(300, 30.0)
 
 print("Testing get_latest...")
 latest = db.get_latest(1)

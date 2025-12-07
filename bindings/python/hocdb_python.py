@@ -89,7 +89,27 @@ class HOCDB:
         
         if not self.handle:
             raise RuntimeError("Failed to initialize HOCDB")
-    
+
+        # Build struct format string for packing/unpacking
+        self._struct_fmt = self._build_struct_format()
+        self._record_size = struct.calcsize(self._struct_fmt)
+
+    def _build_struct_format(self) -> str:
+        """Build the struct format string from the schema"""
+        fmt = "<"  # Little-endian
+        for field in self._schema:
+            if field.type == FieldTypes.I64:
+                fmt += "q"
+            elif field.type == FieldTypes.F64:
+                fmt += "d"
+            elif field.type == FieldTypes.U64:
+                fmt += "Q"
+            elif field.type == FieldTypes.BOOL:
+                fmt += "?"
+            else:
+                raise ValueError(f"Unsupported field type: {field.type}")
+        return fmt
+
     def _find_library(self) -> Optional[str]:
         """Find the HOCDB C library"""
         # Try common locations
@@ -100,29 +120,41 @@ class HOCDB:
             './libhocdb_c.so',
             os.path.join(os.path.dirname(__file__), '../..', 'zig-out/lib/libhocdb_c.dylib'),
             os.path.join(os.path.dirname(__file__), '../..', 'zig-out/lib/libhocdb_c.so'),
+            '../zig-out/lib/libhocdb_c.dylib', # From bindings/python
+            '../libhocdb_c.dylib',
+            '../zig-out/lib/libhocdb_c.so',
+            '../libhocdb_c.so',
         ]
         
-        for path in possible_paths:
-            abs_path = os.path.abspath(path)
-            if os.path.exists(abs_path):
-                return abs_path
-        
-        # Try to find it using ctypes.util
-        lib_name = ctypes.util.find_library('hocdb_c')
-        if lib_name:
-            return lib_name
+        # Also check environment variable
+        env_path = os.environ.get('HOCDB_LIB_PATH')
+        if env_path:
+            possible_paths.insert(0, env_path)
             
-        return None
+        for path in possible_paths:
+            if os.path.exists(path):
+                return os.path.abspath(path)
+                
+        # Fallback to system search
+        return ctypes.util.find_library('hocdb_c')
     
     def _define_function_signatures(self):
-        """Define C function signatures"""
+        """Define argument and return types for C functions"""
+        # CField struct definition
+        global CField
+        class CField(ctypes.Structure):
+            _fields_ = [
+                ("name", ctypes.c_char_p),
+                ("type", ctypes.c_int)
+            ]
+        
         # hocdb_init function
         self.lib.hocdb_init.argtypes = [
             ctypes.c_char_p,          # ticker
             ctypes.c_char_p,          # path
             ctypes.POINTER(CField),   # schema
             ctypes.c_size_t,          # schema_len
-            ctypes.c_longlong,        # max_file_size
+            ctypes.c_size_t,          # max_file_size
             ctypes.c_int,             # overwrite_on_full
             ctypes.c_int,             # flush_on_write
             ctypes.c_int              # auto_increment
@@ -132,8 +164,8 @@ class HOCDB:
         # hocdb_append function
         self.lib.hocdb_append.argtypes = [
             ctypes.c_void_p,          # handle
-            ctypes.c_void_p,          # data
-            ctypes.c_size_t           # len
+            ctypes.c_char_p,          # record_bytes
+            ctypes.c_size_t           # record_len
         ]
         self.lib.hocdb_append.restype = ctypes.c_int
         
@@ -144,7 +176,7 @@ class HOCDB:
         # hocdb_load function
         self.lib.hocdb_load.argtypes = [
             ctypes.c_void_p,          # handle
-            ctypes.POINTER(ctypes.c_size_t)  # out_len
+            ctypes.POINTER(ctypes.c_size_t) # out_len
         ]
         self.lib.hocdb_load.restype = ctypes.c_void_p
         
@@ -186,18 +218,61 @@ class HOCDB:
         ]
         self.lib.hocdb_get_latest.restype = ctypes.c_int
     
-    def append(self, record_data: bytes) -> bool:
+    def append(self, *args) -> bool:
         """
-        Append a raw record to the database
+        Append a record to the database.
         
         Args:
-            record_data: Raw bytes of the record matching the schema
+            *args: Values corresponding to the schema fields.
+                   Can be passed as separate arguments or as a single dictionary/tuple/list.
             
         Returns:
             True if successful, False otherwise
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
+        
+        values = args
+        if len(args) == 1:
+            if isinstance(args[0], (list, tuple)):
+                values = args[0]
+            elif isinstance(args[0], dict):
+                # Extract values in schema order
+                values = []
+                for field in self._schema:
+                    if field.name in args[0]:
+                        values.append(args[0][field.name])
+                    else:
+                        raise ValueError(f"Missing field in dictionary: {field.name}")
+                values = tuple(values)
+            elif hasattr(args[0], '__dict__'): # Object
+                 values = []
+                 for field in self._schema:
+                    if hasattr(args[0], field.name):
+                        values.append(getattr(args[0], field.name))
+                    else:
+                         raise ValueError(f"Missing attribute in object: {field.name}")
+                 values = tuple(values)
+
+        if len(values) != len(self._schema):
+             # Special case: if auto_increment is on, we might skip the first field (timestamp)
+             # But the C API expects the full record structure including the timestamp placeholder.
+             # The user might pass N-1 arguments.
+             # However, for simplicity and consistency with C API which expects full record,
+             # let's assume user must pass a placeholder for timestamp if auto_increment is on,
+             # OR we handle it here.
+             # The C `hocdb_append` takes raw bytes. If auto_inc is on, it overwrites the timestamp.
+             # So we must provide *some* bytes for it.
+             # If user provided N-1 args and auto_inc is on, we can prepend 0.
+             # But checking `auto_increment` flag stored in python class is needed.
+             # I didn't store `auto_increment` in `__init__`. I should have.
+             # For now, strict length check.
+             raise ValueError(f"Expected {len(self._schema)} arguments, got {len(values)}")
+
+        try:
+            record_data = struct.pack(self._struct_fmt, *values)
+        except struct.error as e:
+            raise ValueError(f"Failed to pack record: {e}")
         
         result = self.lib.hocdb_append(
             self.handle,
@@ -218,12 +293,12 @@ class HOCDB:
         result = self.lib.hocdb_flush(self.handle)
         return result == 0
     
-    def load(self) -> Optional[bytes]:
+    def load(self) -> list[dict]:
         """
-        Load all records into memory with zero-copy
+        Load all records into memory and unpack them.
         
         Returns:
-            Raw bytes of all records, or None on failure
+            List of dictionaries representing the records.
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
@@ -232,32 +307,46 @@ class HOCDB:
         data_ptr = self.lib.hocdb_load(self.handle, ctypes.byref(out_len))
         
         if not data_ptr:
-            return None
+            return []
         
         try:
             # Copy data from C memory to Python bytes
             data = ctypes.string_at(data_ptr, out_len.value)
-            return data
+            return self._unpack_records(data)
         finally:
             # Free the C-allocated memory
             self.lib.hocdb_free(data_ptr)
 
-    def query(self, start_ts: int, end_ts: int, filters: Optional[list] = None) -> Optional[bytes]:
+    def _unpack_records(self, data: bytes) -> list[dict]:
+        """Unpack raw bytes into a list of dictionaries"""
+        records = []
+        for i in range(0, len(data), self._record_size):
+            chunk = data[i:i+self._record_size]
+            if len(chunk) < self._record_size:
+                break
+            values = struct.unpack(self._struct_fmt, chunk)
+            record = {}
+            for j, field in enumerate(self._schema):
+                record[field.name] = values[j]
+            records.append(record)
+        return records
+
+    def query(self, start_ts: int, end_ts: int, filters: Optional[list] = None) -> list[dict]:
         """
         Query records in a time range with optional filters
         
         Args:
             start_ts: Start timestamp (inclusive)
-            end_ts: End timestamp (exclusive)
+            end_ts: End timestamp (inclusive)
             filters: Optional list of dicts with 'field_index' and 'value'
             
         Returns:
-            Raw bytes of records in range, or None on failure
+            List of dictionaries representing the matching records
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
         
-        filters_arr = None
+        c_filters = None
         filters_len = 0
         
         if filters:
@@ -265,7 +354,10 @@ class HOCDB:
             if isinstance(filters, dict):
                 filters = [filters]
             
-            filters_arr = (HOCDBFilter * len(filters))()
+            filters_len = len(filters)
+            c_filters_array = HOCDBFilter * filters_len
+            c_filters = c_filters_array()
+            
             for i, f in enumerate(filters):
                 # Handle convenient syntax { "field": value }
                 if len(f) == 1 and 'field_index' not in f:
@@ -275,57 +367,56 @@ class HOCDB:
                         raise ValueError(f"Unknown field in filter: {key}")
                     
                     idx, f_type = self._field_map[key]
-                    filters_arr[i].field_index = idx
+                    c_filters[i].field_index = idx
                     
                     if isinstance(val, int):
-                        filters_arr[i].type = 1 # I64
-                        filters_arr[i].val_i64 = val
+                        c_filters[i].type = 1 # I64
+                        c_filters[i].val_i64 = val
                     elif isinstance(val, float):
-                        filters_arr[i].type = 2 # F64
-                        filters_arr[i].val_f64 = val
+                        c_filters[i].type = 2 # F64
+                        c_filters[i].val_f64 = val
                     elif isinstance(val, str):
-                        filters_arr[i].type = 5 # String
-                        filters_arr[i].val_string = val.encode('utf-8')
+                        c_filters[i].type = 5 # String
+                        c_filters[i].val_string = val.encode('utf-8')
                     elif isinstance(val, bool):
-                        filters_arr[i].type = 6 # Bool
-                        filters_arr[i].val_bool = val
+                        c_filters[i].type = 6 # Bool
+                        c_filters[i].val_bool = val
                     else:
                          raise ValueError(f"Unsupported value type for filter: {type(val)}")
                 else:
                     # Legacy syntax
-                    filters_arr[i].field_index = f['field_index']
-                    if isinstance(f['value'], int):
-                        filters_arr[i].type = 1 # I64
-                        filters_arr[i].val_i64 = f['value']
-                    elif isinstance(f['value'], float):
-                        filters_arr[i].type = 2 # F64
-                        filters_arr[i].val_f64 = f['value']
-                    elif isinstance(f['value'], str):
-                        filters_arr[i].type = 5 # String
-                        filters_arr[i].val_string = f['value'].encode('utf-8')
-                    elif isinstance(f['value'], bool):
-                        filters_arr[i].type = 6 # Bool
-                        filters_arr[i].val_bool = f['value']
-            filters_len = len(filters)
+                    c_filters[i].field_index = f['field_index']
+                    val = f['value']
+                    if isinstance(val, int):
+                        c_filters[i].type = 1 # I64
+                        c_filters[i].val_i64 = val
+                    elif isinstance(val, float):
+                        c_filters[i].type = 2 # F64
+                        c_filters[i].val_f64 = val
+                    elif isinstance(val, str):
+                        c_filters[i].type = 5 # String
+                        c_filters[i].val_string = val.encode('utf-8')
+                    elif isinstance(val, bool):
+                        c_filters[i].type = 6 # Bool
+                        c_filters[i].val_bool = val
         
         out_len = ctypes.c_size_t()
-        data_ptr = self.lib.hocdb_query(self.handle, start_ts, end_ts, filters_arr, filters_len, ctypes.byref(out_len))
+        data_ptr = self.lib.hocdb_query(
+            self.handle,
+            start_ts,
+            end_ts,
+            c_filters,
+            filters_len,
+            ctypes.byref(out_len)
+        )
         
         if not data_ptr:
-            # If length is 0, it might be just empty result, but query returns null on error?
-            # Zig query returns slice. If empty, len=0, ptr might be non-null (dangling) or null?
-            # Zig C export returns null on error.
-            # If empty result, it returns pointer to empty slice.
-            # Let's assume null means error.
-            # Wait, if empty, it might return null?
-            # Zig: `if (data.len == 0) return null;` ? No.
-            # Zig `query` returns `[]u8`.
-            # If I catch error, I return null.
-            return None
+            return []
         
         try:
             # Copy data from C memory to Python bytes
             data = ctypes.string_at(data_ptr, out_len.value)
+            return self._unpack_records(data)
             return data
         finally:
             # Free the C-allocated memory

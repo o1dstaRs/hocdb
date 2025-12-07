@@ -4,7 +4,7 @@ Test script for HOCDB Python bindings
 import os
 import sys
 import time
-from hocdb_python import HOCDB, HOCDBField, FieldTypes, create_record_bytes
+from hocdb_python import HOCDB, HOCDBField, FieldTypes
 
 def test_basic_functionality():
     """Test basic database operations"""
@@ -33,8 +33,7 @@ def test_basic_functionality():
         price = 50000.0 + (i * 10.5)
         volume = 1.0 + (i * 0.1)
         
-        record = create_record_bytes(schema, timestamp, price, volume)
-        success = db.append(record)
+        success = db.append(timestamp, price, volume)
         if not success:
             print(f"Failed to append record {i}")
             break
@@ -46,12 +45,8 @@ def test_basic_functionality():
     print("Loading data...")
     data = db.load()
     if data:
-        print(f"Successfully loaded {len(data)} bytes of data")
-        
-        # Calculate expected record size and number of records
-        record_size = 8 + 8 + 8  # i64 + f64 + f64 = 24 bytes
-        expected_records = len(data) // record_size
-        print(f"Expected ~{1000} records, got {expected_records} records")
+        print(f"Successfully loaded {len(data)} records")
+        print(f"Expected 1000 records, got {len(data)} records")
     else:
         print("Failed to load data")
     
@@ -84,13 +79,11 @@ def time_based_write_benchmark():
     print(f"Duration: {duration_seconds} seconds")
     print("Target: As many writes as possible")
 
-    record = create_record_bytes(schema, 0, 0.0, 0.0)  # Template record
     total_records = 0
 
     while time.time() - start_time < duration_seconds:
         # Create record with current values
-        current_record = create_record_bytes(schema, total_records, float(total_records), float(total_records))
-        success = db.append(current_record)
+        success = db.append(total_records, float(total_records), float(total_records))
         if not success:
             print(f"Failed to append record {total_records}")
             break
@@ -139,12 +132,12 @@ def load_aggregate_benchmark(total_records_estimate):
 
     # Load benchmark
     start_time = time.time()
-    data = db.load()
+    records = db.load()
     load_time = time.time() - start_time
 
-    if data:
+    if records:
         record_size = 8 + 8 + 8  # 24 bytes
-        records_loaded = len(data) // record_size
+        records_loaded = len(records)
         print(f"\n[READ/LOAD] {records_loaded} records")
         print(f"Time: {load_time:.4f}s")
         load_ops_per_sec = records_loaded / load_time
@@ -162,28 +155,15 @@ def load_aggregate_benchmark(total_records_estimate):
         # Prevent compiler optimization
         total_volume_checksum = 0.0
 
-        # Convert raw bytes to records for aggregation
-        record_size = 24  # bytes per record
-        records = []
-
-        # Parse raw data into records
-        for idx in range(0, len(data), record_size):
-            chunk = data[idx:idx+record_size]
-            if len(chunk) == record_size:
-                # Unpack the record: i64 timestamp, f64 usd, f64 volume
-                import struct
-                timestamp, usd, volume = struct.unpack('<qdd', chunk)
-                records.append((timestamp, usd, volume))
-
         # Perform aggregation on parsed records
         while i + frame_size <= len(records):
             frame = records[i:i + frame_size]
             usd_sum = 0.0
             vol_sum = 0.0
 
-            for _, usd, volume in frame:
-                usd_sum += usd
-                vol_sum += volume
+            for record in frame:
+                usd_sum += record['usd']
+                vol_sum += record['volume']
 
             usd_mean = usd_sum / frame_size
             total_volume_checksum += vol_sum + usd_mean  # Use values
@@ -233,14 +213,12 @@ def test_schema_validation():
     db = HOCDB("SCHEMA_TEST", db_path, schema)
     
     # Valid record
-    valid_record = create_record_bytes(schema, 1620000000, 100.5)
-    success = db.append(valid_record)
+    success = db.append(1620000000, 100.5)
     print(f"Valid record append: {'Success' if success else 'Failed'}")
     
     # Try to append invalid record (wrong number of fields)
     try:
-        invalid_record = create_record_bytes([HOCDBField("only", FieldTypes.I64)], 123)
-        success = db.append(invalid_record)
+        success = db.append(123) # Missing value
         print(f"Invalid record append: {'Unexpectedly Succeeded' if success else 'Failed as expected'}")
     except ValueError as e:
         print(f"Invalid record caught error as expected: {e}")

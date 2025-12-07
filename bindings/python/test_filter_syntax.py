@@ -24,42 +24,41 @@ def run_test():
 
         print("Appending data...")
         # 1. event = 0
-        db.append(struct.pack('<qdq', 100, 1.0, 0))
+        db.append(100, 1.0, 0)
         # 2. event = 1
-        db.append(struct.pack('<qdq', 200, 2.0, 1))
+        db.append(200, 2.0, 1)
         # 3. event = 2
-        db.append(struct.pack('<qdq', 300, 3.0, 2))
+        db.append(300, 3.0, 2)
 
         # Query with new syntax: { "event": 1 }
         print("Querying with filter { 'event': 1 }...")
         
         # Test single dict
-        data = db.query(0, 1000, {"event": 1})
-        if not data:
+        records = db.query(0, 1000, {"event": 1})
+        if not records:
             raise RuntimeError("Query returned no data")
             
-        record_size = 8 + 8 + 8
-        count = len(data) // record_size
+        count = len(records)
         print(f"Results count: {count}")
         
         if count != 1:
             raise RuntimeError(f"Expected 1 result, got {count}")
             
-        ts, price, event = struct.unpack('<qdq', data)
-        print(f"Result: TS={ts}, Event={event}")
+        record = records[0]
+        print(f"Result: TS={record['timestamp']}, Event={record['event']}")
         
-        if event != 1:
-            raise RuntimeError(f"Expected event 1, got {event}")
+        if record['event'] != 1:
+            raise RuntimeError(f"Expected event 1, got {record['event']}")
             
         # Test list of dicts
         print("Querying with filter list [{ 'event': 2 }]...")
-        data = db.query(0, 1000, [{"event": 2}])
-        if not data:
+        records = db.query(0, 1000, [{"event": 2}])
+        if not records:
              raise RuntimeError("Query returned no data")
         
-        ts, price, event = struct.unpack('<qdq', data)
-        if event != 2:
-             raise RuntimeError(f"Expected event 2, got {event}")
+        record = records[0]
+        if record['event'] != 2:
+             raise RuntimeError(f"Expected event 2, got {record['event']}")
 
         print("✅ Python Filter Syntax Test Passed!")
         
