@@ -115,6 +115,14 @@ int hocdb_get_latest(HOCDBHandle handle, size_t field_index, double* out_val, in
 void hocdb_free(void* ptr);
 
 /**
+ * Get the index of a field by name
+ * @param handle Database handle
+ * @param field_name Field name as null-terminated string
+ * @return Field index or -1 if not found
+ */
+int64_t hocdb_get_field_index(HOCDBHandle handle, const char* field_name);
+
+/**
  * Close and free the database handle
  * @param handle Database handle to close
  */

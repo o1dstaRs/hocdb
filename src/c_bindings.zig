@@ -175,3 +175,15 @@ export fn hocdb_free(ptr: ?*anyopaque) void {
         std.c.free(p);
     }
 }
+
+export fn hocdb_get_field_index(db_ptr: *anyopaque, field_name_z: [*:0]const u8) isize {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const field_name = std.mem.span(field_name_z);
+
+    for (db.fields, 0..) |field, i| {
+        if (std.mem.eql(u8, field.name, field_name)) {
+            return @intCast(i);
+        }
+    }
+    return -1;
+}

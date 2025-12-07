@@ -3,7 +3,7 @@ import shutil
 from hocdb_python import HOCDB, HOCDBField, FieldTypes, create_record_bytes
 
 TICKER = "TEST_QUERY_PYTHON"
-DATA_DIR = "b_python_test_data"
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "b_python_test_data")
 
 # Cleanup
 if os.path.exists(DATA_DIR):
@@ -52,7 +52,7 @@ for i in range(count):
         raise RuntimeError(f"Expected ts {expected_ts}, got {ts}")
 
 print("Querying with filter (value=3.0)...")
-filtered_data = db.query(0, 1000, [{'field_index': 1, 'value': 3.0}])
+filtered_data = db.query(0, 1000, {'value': 3.0})
 
 if filtered_data is None:
     raise RuntimeError("Filtered query returned None")

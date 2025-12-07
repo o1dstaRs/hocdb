@@ -45,7 +45,7 @@ module.exports = {
 
         for (const field of schema) {
             if (!field.name || !field.type) throw new Error("Invalid field definition");
-            fieldOffsets[field.name] = { offset: recordSize, type: field.type };
+            fieldOffsets[field.name] = { offset: recordSize, type: field.type, index: schema.indexOf(field) };
 
             switch (field.type) {
                 case 'i64': recordSize += 8; break;
@@ -100,8 +100,31 @@ module.exports = {
                 return result;
             },
 
-            query: (start, end) => {
-                const buffer = addon.dbQuery(db, BigInt(start), BigInt(end));
+            query: (start, end, filters = []) => {
+                let filterArray = [];
+                if (!Array.isArray(filters) && typeof filters === 'object') {
+                    // Convert object { key: val } to array
+                    for (const [key, value] of Object.entries(filters)) {
+                        const info = fieldOffsets[key];
+                        if (!info) throw new Error(`Unknown field in filter: ${key}`);
+                        filterArray.push({
+                            field_index: info.index,
+                            value: value,
+                            type: info.type
+                        });
+                    }
+                } else if (Array.isArray(filters)) {
+                    // Assume already in correct format, but ensure type is present
+                    filterArray = filters.map(f => {
+                        if (f.type) return f;
+                        // If type missing, try to look up by index? Hard if we don't have reverse map.
+                        // But if user passes field_index, they should pass type or we need reverse map.
+                        // For now assume user passes type if using raw array.
+                        return f;
+                    });
+                }
+
+                const buffer = addon.dbQuery(db, BigInt(start), BigInt(end), filterArray);
                 // Parse buffer into array of objects
                 const count = buffer.byteLength / recordSize;
                 const result = new Array(count);

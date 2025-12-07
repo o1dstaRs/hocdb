@@ -172,8 +172,8 @@ func TestQueryFiltering(t *testing.T) {
 	db.Flush()
 
 	// Filter by event = "deposit"
-	filters := []Filter{
-		{FieldIndex: 2, Value: "deposit"},
+	filters := map[string]interface{}{
+		"event": "deposit",
 	}
 
 	data, err := db.Query(0, 1000, filters)

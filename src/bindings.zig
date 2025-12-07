@@ -78,6 +78,7 @@ extern "c" fn napi_create_int64(env: napi_env, value: i64, result: *napi_value) 
 extern "c" fn napi_get_value_double(env: napi_env, value: napi_value, result: *f64) napi_status;
 extern "c" fn napi_get_value_int64(env: napi_env, value: napi_value, result: *i64) napi_status;
 extern "c" fn napi_get_value_bigint_int64(env: napi_env, value: napi_value, result: *i64, lossless: *bool) napi_status;
+extern "c" fn napi_get_value_bigint_uint64(env: napi_env, value: napi_value, result: *u64, lossless: *bool) napi_status;
 extern "c" fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: ?[*]u8, bufsize: usize, result: ?*usize) napi_status;
 extern "c" fn napi_create_external(env: napi_env, data: *anyopaque, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
 extern "c" fn napi_get_value_external(env: napi_env, value: napi_value, result: *?*anyopaque) napi_status;
@@ -292,9 +293,9 @@ fn dbLoad(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return result;
 }
 
-// dbQuery(db: external, start: i64, end: i64): ArrayBuffer
+// dbQuery(db: external, start: i64, end: i64, filters: object[]): ArrayBuffer
 fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
-    const args = getArgs(env, info, 3) catch return throwError(env, "Expected 3 arguments");
+    const args = getArgs(env, info, 4) catch return throwError(env, "Expected 4 arguments");
 
     var db_ptr: ?*anyopaque = null;
     _ = napi_get_value_external(env, args[0], &db_ptr);
@@ -303,23 +304,69 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     var start: i64 = 0;
     var lossless: bool = true;
     if (napi_get_value_bigint_int64(env, args[1], &start, &lossless) != .ok) {
-        // Fallback to Number?
-        if (napi_get_value_int64(env, args[1], &start) != .ok) return throwError(env, "Invalid start timestamp (expected BigInt or Number)");
+        if (napi_get_value_int64(env, args[1], &start) != .ok) return throwError(env, "Invalid start timestamp");
     }
 
     var end: i64 = 0;
     if (napi_get_value_bigint_int64(env, args[2], &end, &lossless) != .ok) {
-        if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp (expected BigInt or Number)");
+        if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp");
     }
 
-    // Use C allocator so we can free it with std.c.free in finalizer
+    // Parse Filters
+    var filters_len: u32 = 0;
+    if (napi_get_array_length(env, args[3], &filters_len) != .ok) return throwError(env, "Invalid filters array");
+
     const allocator = std.heap.c_allocator;
+    const filters = allocator.alloc(hocdb.Filter, filters_len) catch return throwError(env, "OOM");
+    defer allocator.free(filters);
+
+    var i: u32 = 0;
+    while (i < filters_len) : (i += 1) {
+        var element: napi_value = undefined;
+        if (napi_get_element(env, args[3], i, &element) != .ok) return throwError(env, "Failed to get filter element");
+
+        var index_val: napi_value = undefined;
+        if (napi_get_named_property(env, element, "field_index", &index_val) != .ok) return throwError(env, "Missing field_index");
+        var field_index: i64 = 0;
+        if (napi_get_value_int64(env, index_val, &field_index) != .ok) return throwError(env, "Invalid field_index");
+
+        var type_val: napi_value = undefined;
+        if (napi_get_named_property(env, element, "type", &type_val) != .ok) return throwError(env, "Missing type");
+        var type_len: usize = 0;
+        if (napi_get_value_string_utf8(env, type_val, null, 0, &type_len) != .ok) return throwError(env, "Invalid type");
+        const type_str = allocator.alloc(u8, type_len + 1) catch return throwError(env, "OOM");
+        defer allocator.free(type_str);
+        if (napi_get_value_string_utf8(env, type_val, type_str.ptr, type_len + 1, null) != .ok) return throwError(env, "Failed to get type");
+
+        var value_val: napi_value = undefined;
+        if (napi_get_named_property(env, element, "value", &value_val) != .ok) return throwError(env, "Missing value");
+
+        if (std.mem.eql(u8, type_str[0..type_len], "i64")) {
+            var val: i64 = 0;
+            var l: bool = true;
+            if (napi_get_value_bigint_int64(env, value_val, &val, &l) != .ok) {
+                if (napi_get_value_int64(env, value_val, &val) != .ok) return throwError(env, "Invalid i64 value");
+            }
+            filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .i64 = val } };
+        } else if (std.mem.eql(u8, type_str[0..type_len], "f64")) {
+            var val: f64 = 0;
+            if (napi_get_value_double(env, value_val, &val) != .ok) return throwError(env, "Invalid f64 value");
+            filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .f64 = val } };
+        } else if (std.mem.eql(u8, type_str[0..type_len], "u64")) {
+            var val: u64 = 0;
+            var l: bool = true;
+            if (napi_get_value_bigint_uint64(env, value_val, &val, &l) != .ok) return throwError(env, "Invalid u64 value"); // u64 must be bigint usually
+            filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .u64 = val } };
+        } else {
+            return throwError(env, "Unsupported filter type");
+        }
+    }
 
     db.flush() catch |err| {
         return throwError(env, @errorName(err));
     };
 
-    const data = db.query(start, end, &[_]hocdb.Filter{}, allocator) catch |err| {
+    const data = db.query(start, end, filters, allocator) catch |err| {
         return throwError(env, @errorName(err));
     };
 

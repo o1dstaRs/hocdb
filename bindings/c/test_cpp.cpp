@@ -44,12 +44,8 @@ int main() {
         db.flush();
 
         std::cout << "Querying with filter (category=1)..." << std::endl;
-        std::vector<HOCDBFilter> filters;
-        HOCDBFilter f;
-        f.field_index = 2; // category
-        f.type = 1; // I64
-        f.val_i64 = 1;
-        filters.push_back(f);
+        std::map<std::string, Database::FilterValue> filters;
+        filters["category"] = int64_t(1);
 
         auto data = db.query(0, 1000, filters);
         

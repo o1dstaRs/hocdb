@@ -174,7 +174,7 @@ if (fs.existsSync(RING_DATA_DIR)) {
 // --- Flush-on-Write Test ---
 console.log("\nRunning Flush-on-Write Test...");
 {
-    const testDir = "./b_node_test_data_flush";
+    const testDir = path.join(__dirname, '..', '..', 'b_node_test_data_flush');
     if (fs.existsSync(testDir)) {
         fs.rmSync(testDir, { recursive: true, force: true });
     }

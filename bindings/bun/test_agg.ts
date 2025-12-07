@@ -1,7 +1,9 @@
 import { HOCDB } from "./index.ts";
 import { rmSync, existsSync } from "fs";
 
-const TEST_DIR = "b_bun_test_data";
+import { join } from "path";
+
+const TEST_DIR = join(import.meta.dir, "..", "..", "b_bun_test_data");
 const TICKER = "TEST_BUN_AGG";
 
 if (existsSync(TEST_DIR)) {

@@ -111,7 +111,7 @@ if (existsSync(RING_DATA_DIR)) {
 // --- Flush-on-Write Test ---
 console.log("\nRunning Flush-on-Write Test...");
 {
-    const testDir = "./b_bun_test_data_flush";
+    const testDir = join(import.meta.dir, "..", "..", "b_bun_test_data_flush");
     if (existsSync(testDir)) {
         rmSync(testDir, { recursive: true, force: true });
     }
@@ -146,7 +146,7 @@ console.log("\nRunning Flush-on-Write Test...");
 // --- Filtering Test ---
 console.log("\nRunning Filtering Test...");
 {
-    const testDir = "./b_bun_test_data_filter";
+    const testDir = join(import.meta.dir, "..", "..", "b_bun_test_data_filter");
     if (existsSync(testDir)) {
         rmSync(testDir, { recursive: true, force: true });
     }
@@ -170,9 +170,7 @@ console.log("\nRunning Filtering Test...");
     db.flush();
 
     // Filter by event = 1
-    const results = db.query(0n, 1000n, [
-        { field_index: 2, value: 1n }
-    ]);
+    const results = db.query(0n, 1000n, { event: 1n });
 
     console.log(`Filtered results count: ${results.length}`);
 

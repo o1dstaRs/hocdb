@@ -2,7 +2,7 @@ const hocdb = require('./index');
 const path = require('path');
 const fs = require('fs');
 
-const TEST_DIR = 'b_node_test_data';
+const TEST_DIR = path.join(__dirname, '..', '..', 'b_node_test_data');
 const TICKER = 'TEST_NODE_AGG';
 
 // Cleanup

@@ -66,7 +66,7 @@ export class HOCDB {
     db: any;
     schema: FieldDef[];
     recordSize: number;
-    fieldOffsets: Record<string, { offset: number, type: string }>;
+    fieldOffsets: Record<string, { offset: number, type: string, index: number }>;
     nameBuffers: Uint8Array[];
     // Actually we need to keep the name strings alive during init call.
     // But hocdb_init duplicates them. So we don't need to keep them after init.
@@ -88,7 +88,7 @@ export class HOCDB {
 
         for (let i = 0; i < schema.length; i++) {
             const field = schema[i];
-            this.fieldOffsets[field.name] = { offset: this.recordSize, type: field.type };
+            this.fieldOffsets[field.name] = { offset: this.recordSize, type: field.type, index: i };
 
             let typeCode;
             let size;
@@ -187,24 +187,40 @@ export class HOCDB {
         return result;
     }
 
-    query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] = []): Record<string, number | bigint>[] {
+    query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): Record<string, number | bigint>[] {
         if (!this.db) throw new Error("Database not initialized");
+
+        let filterArray: Filter[] = [];
+
+        if (Array.isArray(filters)) {
+            filterArray = filters;
+        } else {
+            // Convert object to array
+            for (const [key, value] of Object.entries(filters)) {
+                const info = this.fieldOffsets[key];
+                if (!info) throw new Error(`Unknown field in filter: ${key}`);
+                filterArray.push({
+                    field_index: info.index,
+                    value: value
+                });
+            }
+        }
 
         const lenPtr = new BigUint64Array(1);
 
         let filtersPtr = null;
         let filtersBuf = null;
 
-        if (filters.length > 0) {
+        if (filterArray.length > 0) {
             // Construct C filter array
             // Struct size: 168 bytes (approx, see previous reasoning)
             const structSize = 168;
-            filtersBuf = new Uint8Array(filters.length * structSize);
+            filtersBuf = new Uint8Array(filterArray.length * structSize);
             const view = new DataView(filtersBuf.buffer);
 
-            for (let i = 0; i < filters.length; i++) {
+            for (let i = 0; i < filterArray.length; i++) {
                 const offset = i * structSize;
-                const f = filters[i];
+                const f = filterArray[i];
 
                 view.setBigUint64(offset, BigInt(f.field_index), true); // Little endian
 
@@ -232,7 +248,7 @@ export class HOCDB {
             BigInt(startTs),
             BigInt(endTs),
             filtersPtr,
-            BigInt(filters.length),
+            BigInt(filterArray.length),
             ptr(lenPtr)
         );
 

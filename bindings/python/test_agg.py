@@ -2,7 +2,7 @@ from hocdb_python import HOCDB, HOCDBField, FieldTypes
 import os
 import shutil
 
-TEST_DIR = "b_python_test_data"
+TEST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "b_python_test_data")
 TICKER = "TEST_PYTHON_AGG"
 
 if os.path.exists(TEST_DIR):

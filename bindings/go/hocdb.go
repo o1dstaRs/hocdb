@@ -65,6 +65,7 @@ import "C"
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"unsafe"
 )
@@ -116,7 +117,8 @@ type Options struct {
 
 // DB represents a connection to an HOCDB database
 type DB struct {
-	handle C.HOCDBHandle
+	handle   C.HOCDBHandle
+	fieldMap map[string]int
 }
 
 // New creates a new HOCDB instance with the specified schema
@@ -178,7 +180,12 @@ func New(ticker, path string, schema []Field, options Options) (*DB, error) {
 		return nil, errors.New("failed to initialize HOCDB")
 	}
 
-	return &DB{handle: handle}, nil
+	fieldMap := make(map[string]int)
+	for i, field := range schema {
+		fieldMap[field.Name] = i
+	}
+
+	return &DB{handle: handle, fieldMap: fieldMap}, nil
 }
 
 // Append adds a raw record to the database
@@ -242,19 +249,45 @@ func (db *DB) Load() ([]byte, error) {
 }
 
 // Query retrieves records within the specified time range [startTs, endTs) with optional filters
-func (db *DB) Query(startTs, endTs int64, filters []Filter) ([]byte, error) {
+// Filters can be passed as []Filter or map[string]interface{}
+func (db *DB) Query(startTs, endTs int64, filters interface{}) ([]byte, error) {
 	if db.handle == nil {
 		return nil, errors.New("database not initialized")
 	}
 
+	var parsedFilters []Filter
+
+	if filters != nil {
+		switch v := filters.(type) {
+		case []Filter:
+			parsedFilters = v
+		case map[string]interface{}:
+			for key, val := range v {
+				idx, ok := db.fieldMap[key]
+				if !ok {
+					return nil, fmt.Errorf("unknown field in filter: %s", key)
+				}
+				parsedFilters = append(parsedFilters, Filter{
+					FieldIndex: idx,
+					Value:      val,
+				})
+			}
+		default:
+			return nil, errors.New("invalid filters type: expected []Filter or map[string]interface{}")
+		}
+	}
+
 	// Convert Go filters to C filters
 	var cFiltersPtr *C.HOCDBFilter
-	if len(filters) > 0 {
-		cFilters := make([]C.HOCDBFilter, len(filters))
-		for i, f := range filters {
+	if len(parsedFilters) > 0 {
+		cFilters := make([]C.HOCDBFilter, len(parsedFilters))
+		for i, f := range parsedFilters {
 			cFilters[i].field_index = C.size_t(f.FieldIndex)
 			switch v := f.Value.(type) {
 			case int64:
+				cFilters[i]._type = C.int(TypeI64)
+				cFilters[i].val_i64 = C.int64_t(v)
+			case int:
 				cFilters[i]._type = C.int(TypeI64)
 				cFilters[i].val_i64 = C.int64_t(v)
 			case float64:
@@ -294,7 +327,7 @@ func (db *DB) Query(startTs, endTs int64, filters []Filter) ([]byte, error) {
 		C.int64_t(startTs),
 		C.int64_t(endTs),
 		cFiltersPtr,
-		C.size_t(len(filters)),
+		C.size_t(len(parsedFilters)),
 		&outLen,
 	)
 

@@ -18,6 +18,10 @@ Examples:
 
 This ensures consistency and makes it easier to clean up test artifacts.
 
+### Test Binaries
+When compiling test binaries (e.g., for C/C++), always output them to the `test_binaries` directory in the project root.
+Example: `test_binaries/test_cpp_verify`
+
 ### Verification
 On every change to the codebase (especially core engine or bindings), you MUST run the verification script to ensure all bindings are working correctly:
 

@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 #include <cstring>
+#include <map>
+#include <variant>
 
 namespace hocdb {
 
@@ -33,6 +35,7 @@ class Database {
 private:
     HOCDBHandle handle_;
     size_t record_size_;
+    std::map<std::string, size_t> field_map_;
 
 public:
     /**
@@ -51,7 +54,9 @@ public:
         c_schema.reserve(schema.size());
         
         record_size_ = 0;
-        for (const auto& field : schema) {
+        for (size_t i = 0; i < schema.size(); ++i) {
+            const auto& field = schema[i];
+            field_map_[field.name] = i;
             c_schema.push_back({field.name.c_str(), field.type});
             switch (field.type) {
                 case HOCDB_TYPE_I64: record_size_ += 8; break;
@@ -173,6 +178,13 @@ public:
      * @param filters Vector of HOCDBFilter structs to apply
      * @return std::vector<uint8_t> containing the raw bytes of the matching records
      */
+    /**
+     * @brief Query records in a time range with optional filters
+     * @param start_ts Start timestamp
+     * @param end_ts End timestamp
+     * @param filters Vector of HOCDBFilter structs to apply
+     * @return std::vector<uint8_t> containing the raw bytes of the matching records
+     */
     std::vector<uint8_t> query(int64_t start_ts, int64_t end_ts, const std::vector<HOCDBFilter>& filters = {}) {
         size_t out_len = 0;
         const HOCDBFilter* filters_ptr = filters.empty() ? nullptr : filters.data();
@@ -188,6 +200,47 @@ public:
         hocdb_free(data);
         
         return result;
+    }
+
+    /**
+     * @brief Query records using a map of field names to values
+     * @param start_ts Start timestamp
+     * @param end_ts End timestamp
+     * @param filters Map of field name to value (variant: i64, f64, u64, string)
+     */
+    using FilterValue = std::variant<int64_t, double, uint64_t, std::string>;
+    std::vector<uint8_t> query(int64_t start_ts, int64_t end_ts, const std::map<std::string, FilterValue>& filters) {
+        std::vector<HOCDBFilter> c_filters;
+        c_filters.reserve(filters.size());
+
+        for (const auto& [name, val] : filters) {
+            auto it = field_map_.find(name);
+            if (it == field_map_.end()) {
+                throw Exception("Unknown field in filter: " + name);
+            }
+
+            HOCDBFilter f;
+            f.field_index = it->second;
+
+            if (std::holds_alternative<int64_t>(val)) {
+                f.type = HOCDB_TYPE_I64;
+                f.val_i64 = std::get<int64_t>(val);
+            } else if (std::holds_alternative<double>(val)) {
+                f.type = HOCDB_TYPE_F64;
+                f.val_f64 = std::get<double>(val);
+            } else if (std::holds_alternative<uint64_t>(val)) {
+                f.type = HOCDB_TYPE_U64;
+                f.val_u64 = std::get<uint64_t>(val);
+            } else if (std::holds_alternative<std::string>(val)) {
+                f.type = HOCDB_TYPE_STRING;
+                std::string s = std::get<std::string>(val);
+                strncpy(f.val_string, s.c_str(), 127);
+                f.val_string[127] = '\0';
+            }
+            c_filters.push_back(f);
+        }
+
+        return query(start_ts, end_ts, c_filters);
     }
 
     /**

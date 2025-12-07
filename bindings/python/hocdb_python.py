@@ -53,6 +53,7 @@ class HOCDB:
         
         # Prepare schema for C API
         self._schema = schema
+        self._field_map = {field.name: (i, field.type) for i, field in enumerate(schema)}
         c_schema_fields = []
         for field in schema:
             c_field = CField()
@@ -255,18 +256,45 @@ class HOCDB:
         filters_len = 0
         
         if filters:
+            # Normalize to list if single dict passed
+            if isinstance(filters, dict):
+                filters = [filters]
+            
             filters_arr = (HOCDBFilter * len(filters))()
             for i, f in enumerate(filters):
-                filters_arr[i].field_index = f['field_index']
-                if isinstance(f['value'], int):
-                    filters_arr[i].type = 1 # I64
-                    filters_arr[i].val_i64 = f['value']
-                elif isinstance(f['value'], float):
-                    filters_arr[i].type = 2 # F64
-                    filters_arr[i].val_f64 = f['value']
-                elif isinstance(f['value'], str):
-                    filters_arr[i].type = 5 # String
-                    filters_arr[i].val_string = f['value'].encode('utf-8')
+                # Handle convenient syntax { "field": value }
+                if len(f) == 1 and 'field_index' not in f:
+                    key = next(iter(f))
+                    val = f[key]
+                    if key not in self._field_map:
+                        raise ValueError(f"Unknown field in filter: {key}")
+                    
+                    idx, f_type = self._field_map[key]
+                    filters_arr[i].field_index = idx
+                    
+                    if isinstance(val, int):
+                        filters_arr[i].type = 1 # I64
+                        filters_arr[i].val_i64 = val
+                    elif isinstance(val, float):
+                        filters_arr[i].type = 2 # F64
+                        filters_arr[i].val_f64 = val
+                    elif isinstance(val, str):
+                        filters_arr[i].type = 5 # String
+                        filters_arr[i].val_string = val.encode('utf-8')
+                    else:
+                         raise ValueError(f"Unsupported value type for filter: {type(val)}")
+                else:
+                    # Legacy syntax
+                    filters_arr[i].field_index = f['field_index']
+                    if isinstance(f['value'], int):
+                        filters_arr[i].type = 1 # I64
+                        filters_arr[i].val_i64 = f['value']
+                    elif isinstance(f['value'], float):
+                        filters_arr[i].type = 2 # F64
+                        filters_arr[i].val_f64 = f['value']
+                    elif isinstance(f['value'], str):
+                        filters_arr[i].type = 5 # String
+                        filters_arr[i].val_string = f['value'].encode('utf-8')
             filters_len = len(filters)
         
         out_len = ctypes.c_size_t()
