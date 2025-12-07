@@ -6,11 +6,12 @@ pub const FieldType = enum(u8) {
     u64 = 3,
     u8 = 4,
     string = 5, // Fixed 128-byte string
+    bool = 6,
 
     pub fn size(self: FieldType) usize {
         return switch (self) {
             .i64, .f64, .u64 => 8,
-            .u8 => 1,
+            .u8, .bool => 1,
             .string => 128,
         };
     }
@@ -36,6 +37,7 @@ pub const Filter = struct {
         f64: f64,
         u64: u64,
         string: [128]u8,
+        bool: bool,
     },
 };
 
@@ -624,6 +626,11 @@ pub const DynamicTimeSeriesDB = struct {
                         if (field_type != .string) return error.TypeMismatch;
                         if (!std.mem.eql(u8, val_ptr[0..128], &v)) matches = false;
                     },
+                    .bool => |v| {
+                        if (field_type != .bool) return error.TypeMismatch;
+                        const val = std.mem.bytesToValue(bool, val_ptr[0..1]);
+                        if (val != v) matches = false;
+                    },
                 }
                 if (!matches) break;
             }
@@ -678,6 +685,7 @@ pub const DynamicTimeSeriesDB = struct {
             .i64 => @floatFromInt(std.mem.bytesToValue(i64, record_buf[field_offset .. field_offset + 8])),
             .u64 => @floatFromInt(std.mem.bytesToValue(u64, record_buf[field_offset .. field_offset + 8])),
             .u8 => @floatFromInt(std.mem.bytesToValue(u8, record_buf[field_offset .. field_offset + 1])),
+            .bool => if (std.mem.bytesToValue(bool, record_buf[field_offset .. field_offset + 1])) 1.0 else 0.0,
             .string => return error.InvalidFieldTypeForStats, // Strings don't contribute to stats
         };
 
@@ -740,6 +748,7 @@ pub const DynamicTimeSeriesDB = struct {
                     .i64 => @floatFromInt(std.mem.bytesToValue(i64, val_bytes[0..8])),
                     .u64 => @floatFromInt(std.mem.bytesToValue(u64, val_bytes[0..8])),
                     .u8 => @floatFromInt(std.mem.bytesToValue(u8, val_bytes[0..1])),
+                    .bool => if (std.mem.bytesToValue(bool, val_bytes[0..1])) 1.0 else 0.0,
                     .string => 0.0, // Strings don't contribute to stats
                 };
 
@@ -788,6 +797,7 @@ pub fn TimeSeriesDB(comptime T: type) type {
                     f64 => FieldType.f64,
                     u64 => FieldType.u64,
                     u8 => FieldType.u8,
+                    bool => FieldType.bool,
                     else => @compileError("Unsupported field type"),
                 };
                 field_infos_storage[i] = .{ .name = field.name, .type = f_type };

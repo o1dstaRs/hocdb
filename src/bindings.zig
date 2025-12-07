@@ -175,7 +175,7 @@ fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         defer std.heap.c_allocator.free(type_str);
         if (napi_get_value_string_utf8(env, type_val, type_str.ptr, type_str_len + 1, null) != .ok) return throwError(env, "Failed to get type");
 
-        const f_type: hocdb.FieldType = if (std.mem.eql(u8, type_str[0..type_str_len], "i64")) .i64 else if (std.mem.eql(u8, type_str[0..type_str_len], "f64")) .f64 else if (std.mem.eql(u8, type_str[0..type_str_len], "u64")) .u64 else return throwError(env, "Unsupported type");
+        const f_type: hocdb.FieldType = if (std.mem.eql(u8, type_str[0..type_str_len], "i64")) .i64 else if (std.mem.eql(u8, type_str[0..type_str_len], "f64")) .f64 else if (std.mem.eql(u8, type_str[0..type_str_len], "u64")) .u64 else if (std.mem.eql(u8, type_str[0..type_str_len], "bool")) .bool else return throwError(env, "Unsupported type");
 
         fields[i] = .{ .name = name[0..name_len], .type = f_type };
     }
@@ -357,6 +357,10 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
             var l: bool = true;
             if (napi_get_value_bigint_uint64(env, value_val, &val, &l) != .ok) return throwError(env, "Invalid u64 value"); // u64 must be bigint usually
             filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .u64 = val } };
+        } else if (std.mem.eql(u8, type_str[0..type_len], "bool")) {
+            var val: bool = false;
+            if (napi_get_value_bool(env, value_val, &val) != .ok) return throwError(env, "Invalid bool value");
+            filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .bool = val } };
         } else {
             return throwError(env, "Unsupported filter type");
         }

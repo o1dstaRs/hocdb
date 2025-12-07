@@ -86,6 +86,7 @@ HOCDB uses a dynamic schema system defined at runtime. You must define your sche
 | `i64` | Signed 64-bit integer | 8 bytes |
 | `f64` | 64-bit floating point | 8 bytes |
 | `u64` | Unsigned 64-bit integer | 8 bytes |
+| `bool` | Boolean | 1 byte |
 | `string` | Fixed-length string | 128 bytes |
 
 ### ⚠️ Requirements

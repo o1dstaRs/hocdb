@@ -54,7 +54,7 @@ export interface DBConfig {
 
 export interface FieldDef {
     name: string;
-    type: 'i64' | 'f64' | 'u64';
+    type: 'i64' | 'f64' | 'u64' | 'bool';
 }
 
 export interface Filter {
@@ -96,6 +96,7 @@ export class HOCDB {
                 case "i64": typeCode = 1; size = 8; break;
                 case "f64": typeCode = 2; size = 8; break;
                 case "u64": typeCode = 3; size = 8; break;
+                case "bool": typeCode = 6; size = 1; break;
                 default: throw new Error(`Unsupported field type: ${field.type}`);
             }
             this.recordSize += size;
@@ -140,6 +141,7 @@ export class HOCDB {
                 case 'i64': view.setBigInt64(info.offset, BigInt(value), true); break;
                 case 'f64': view.setFloat64(info.offset, Number(value), true); break;
                 case 'u64': view.setBigUint64(info.offset, BigInt(value), true); break;
+                case 'bool': view.setUint8(info.offset, value ? 1 : 0); break;
             }
         }
 
@@ -213,8 +215,8 @@ export class HOCDB {
 
         if (filterArray.length > 0) {
             // Construct C filter array
-            // Struct size: 168 bytes (approx, see previous reasoning)
-            const structSize = 168;
+            // Struct size: 168 + 8 (bool + padding) = 176 bytes
+            const structSize = 176;
             filtersBuf = new Uint8Array(filterArray.length * structSize);
             const view = new DataView(filtersBuf.buffer);
 
@@ -238,6 +240,22 @@ export class HOCDB {
                     for (let j = 0; j < Math.min(strBytes.length, 128); j++) {
                         filtersBuf[offset + 40 + j] = strBytes[j];
                     }
+                } else if (typeof f.value === 'boolean') {
+                    view.setInt32(offset + 8, 6, true); // Type Bool
+                    view.setUint8(offset + 168, f.value ? 1 : 0); // val_bool is at end of struct, check offset!
+                    // Wait, struct layout:
+                    // field_index: 8
+                    // type: 4 (aligned to 8?) -> 8
+                    // val_i64: 8
+                    // val_f64: 8
+                    // val_u64: 8
+                    // val_string: 128
+                    // val_bool: 1
+                    // Total: 8 + 8 + 8 + 8 + 8 + 128 + 1 = 169? Aligned to 8 -> 176?
+                    // Let's check C struct alignment.
+                    // size_t (8), int (4+4pad), i64(8), f64(8), u64(8), char[128], bool(1+7pad)
+                    // Offset of val_bool: 8+8+8+8+8+128 = 168.
+                    // So offset + 168 is correct.
                 }
             }
             filtersPtr = ptr(filtersBuf);

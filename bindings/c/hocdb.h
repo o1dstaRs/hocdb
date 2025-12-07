@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +14,7 @@ extern "C" {
 #define HOCDB_TYPE_F64 2
 #define HOCDB_TYPE_U64 3
 #define HOCDB_TYPE_STRING 5
+#define HOCDB_TYPE_BOOL 6
 
 // Structure for schema field definition
 typedef struct {
@@ -82,6 +84,7 @@ typedef struct {
     double val_f64;
     uint64_t val_u64;
     char val_string[128];
+    bool val_bool;
 } HOCDBFilter;
 
 /**

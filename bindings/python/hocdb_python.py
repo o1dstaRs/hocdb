@@ -14,6 +14,7 @@ class FieldTypes:
     I64 = 1
     F64 = 2
     U64 = 3
+    BOOL = 6
 
 
 class HOCDBField:
@@ -281,6 +282,9 @@ class HOCDB:
                     elif isinstance(val, str):
                         filters_arr[i].type = 5 # String
                         filters_arr[i].val_string = val.encode('utf-8')
+                    elif isinstance(val, bool):
+                        filters_arr[i].type = 6 # Bool
+                        filters_arr[i].val_bool = val
                     else:
                          raise ValueError(f"Unsupported value type for filter: {type(val)}")
                 else:
@@ -295,6 +299,9 @@ class HOCDB:
                     elif isinstance(f['value'], str):
                         filters_arr[i].type = 5 # String
                         filters_arr[i].val_string = f['value'].encode('utf-8')
+                    elif isinstance(f['value'], bool):
+                        filters_arr[i].type = 6 # Bool
+                        filters_arr[i].val_bool = f['value']
             filters_len = len(filters)
         
         out_len = ctypes.c_size_t()
@@ -393,6 +400,7 @@ class HOCDBFilter(ctypes.Structure):
         ("val_f64", ctypes.c_double),
         ("val_u64", ctypes.c_uint64),
         ("val_string", ctypes.c_char * 128),
+        ("val_bool", ctypes.c_bool),
     ]
 
 
@@ -422,6 +430,9 @@ def create_record_bytes(schema: list, *values) -> bytes:
         elif field.type == FieldTypes.U64:
             # Pack as uint64 little-endian
             record_bytes += struct.pack('<Q', int(value))
+        elif field.type == FieldTypes.BOOL:
+            # Pack as bool (1 byte)
+            record_bytes += struct.pack('?', bool(value))
         else:
             raise ValueError(f"Unsupported field type: {field.type}")
     

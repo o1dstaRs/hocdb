@@ -51,6 +51,7 @@ module.exports = {
                 case 'i64': recordSize += 8; break;
                 case 'f64': recordSize += 8; break;
                 case 'u64': recordSize += 8; break;
+                case 'bool': recordSize += 1; break;
                 default: throw new Error(`Unsupported field type: ${field.type}`);
             }
         }
@@ -73,6 +74,7 @@ module.exports = {
                         case 'i64': buffer.writeBigInt64LE(BigInt(value), info.offset); break;
                         case 'f64': buffer.writeDoubleLE(Number(value), info.offset); break;
                         case 'u64': buffer.writeBigUInt64LE(BigInt(value), info.offset); break;
+                        case 'bool': buffer.writeUInt8(value ? 1 : 0, info.offset); break;
                     }
                 }
                 addon.dbAppend(db, buffer);
@@ -93,6 +95,7 @@ module.exports = {
                             case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
                             case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
                             case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                            case 'bool': record[name] = view.getUint8(base + info.offset) !== 0; break;
                         }
                     }
                     result[i] = record;
@@ -138,6 +141,7 @@ module.exports = {
                             case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
                             case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
                             case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                            case 'bool': record[name] = view.getUint8(base + info.offset) !== 0; break;
                         }
                     }
                     result[i] = record;

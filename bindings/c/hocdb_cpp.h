@@ -62,6 +62,7 @@ public:
                 case HOCDB_TYPE_I64: record_size_ += 8; break;
                 case HOCDB_TYPE_F64: record_size_ += 8; break;
                 case HOCDB_TYPE_U64: record_size_ += 8; break;
+                case HOCDB_TYPE_BOOL: record_size_ += 1; break;
                 default: throw Exception("Unsupported field type");
             }
         }
@@ -208,7 +209,7 @@ public:
      * @param end_ts End timestamp
      * @param filters Map of field name to value (variant: i64, f64, u64, string)
      */
-    using FilterValue = std::variant<int64_t, double, uint64_t, std::string>;
+    using FilterValue = std::variant<int64_t, double, uint64_t, std::string, bool>;
     std::vector<uint8_t> query(int64_t start_ts, int64_t end_ts, const std::map<std::string, FilterValue>& filters) {
         std::vector<HOCDBFilter> c_filters;
         c_filters.reserve(filters.size());
@@ -236,6 +237,9 @@ public:
                 std::string s = std::get<std::string>(val);
                 strncpy(f.val_string, s.c_str(), 127);
                 f.val_string[127] = '\0';
+            } else if (std::holds_alternative<bool>(val)) {
+                f.type = HOCDB_TYPE_BOOL;
+                f.val_bool = std::get<bool>(val);
             }
             c_filters.push_back(f);
         }

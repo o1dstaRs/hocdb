@@ -78,6 +78,7 @@ const (
 	TypeF64    FieldType = 2 // 64-bit floating point
 	TypeU64    FieldType = 3 // Unsigned 64-bit integer
 	TypeString FieldType = 5 // Fixed 128-byte string
+	TypeBool   FieldType = 6 // Boolean (1 byte)
 )
 
 // Field defines a field in the database schema
@@ -314,6 +315,9 @@ func (db *DB) Query(startTs, endTs int64, filters interface{}) ([]byte, error) {
 				}
 				cFilters[i].val_string[min(127, len(v))] = 0 // Null terminate just in case
 				C.free(unsafe.Pointer(cStr))                 // Not used actually
+			case bool:
+				cFilters[i]._type = C.int(TypeBool)
+				cFilters[i].val_bool = C.bool(v)
 			default:
 				return nil, errors.New("unsupported filter value type")
 			}
@@ -501,6 +505,22 @@ func CreateRecordBytes(schema []Field, values ...interface{}) ([]byte, error) {
 			bytes := make([]byte, 128)
 			copy(bytes, val)
 			record = append(record, bytes...)
+
+		case TypeBool:
+			var val bool
+			switch v := value.(type) {
+			case bool:
+				val = v
+			default:
+				return nil, errors.New("invalid type for Bool field")
+			}
+
+			// Convert to 1 byte
+			var b byte
+			if val {
+				b = 1
+			}
+			record = append(record, b)
 
 		default:
 			return nil, errors.New("unsupported field type")

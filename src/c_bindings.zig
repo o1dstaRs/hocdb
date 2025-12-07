@@ -7,7 +7,7 @@ const DB = hocdb.DynamicTimeSeriesDB;
 
 pub const CField = extern struct {
     name: [*:0]const u8,
-    type: c_int, // 1=i64, 2=f64, 3=u64, 5=string
+    type: c_int, // 1=i64, 2=f64, 3=u64, 5=string, 6=bool
 };
 
 pub const CFilter = extern struct {
@@ -17,6 +17,7 @@ pub const CFilter = extern struct {
     val_f64: f64,
     val_u64: u64,
     val_string: [128]u8,
+    val_bool: bool,
 };
 
 export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr: [*]const CField, schema_len: usize, max_size: i64, overwrite: c_int, flush: c_int, auto_increment: c_int) ?*anyopaque {
@@ -47,6 +48,7 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
             2 => .f64,
             3 => .u64,
             5 => .string,
+            6 => .bool,
             else => {
                 std.heap.c_allocator.free(name); // Free current name
                 var j: usize = 0; // Free previous names
@@ -139,6 +141,7 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, filters_pt
                 2 => .{ .f64 = cf.val_f64 },
                 3 => .{ .u64 = cf.val_u64 },
                 5 => .{ .string = cf.val_string },
+                6 => .{ .bool = cf.val_bool },
                 else => return null, // Invalid type
             },
         };
