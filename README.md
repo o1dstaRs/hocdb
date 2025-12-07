@@ -122,12 +122,45 @@ zig build python-bindings
 zig build go-bindings
 ```
 
+### Installation as Zig Package
+You can use HOCDB as a standard Zig library in your own project.
+
+1. **Add Dependency**:
+   ```bash
+   zig fetch --save https://github.com/o1dstaRs/hocdb/archive/refs/heads/main.tar.gz
+   # OR for local development:
+   # zig fetch --save ../path/to/hocdb
+   ```
+
+2. **Configure `build.zig`**:
+   ```zig
+   pub fn build(b: *std.Build) void {
+       const target = b.standardTargetOptions(.{});
+       const optimize = b.standardOptimizeOption(.{});
+
+       const hocdb_dep = b.dependency("hocdb", .{
+           .target = target,
+           .optimize = optimize,
+       });
+
+       const exe = b.addExecutable(.{
+           .name = "my-app",
+           .root_source_file = b.path("src/main.zig"),
+           .target = target,
+           .optimize = optimize,
+       });
+
+       exe.root_module.addImport("hocdb", hocdb_dep.module("hocdb"));
+       b.installArtifact(exe);
+   }
+   ```
+
 ---
 
 ## Usage Examples
 
 ### ⚡ Zig
-Direct usage of the core library.
+Usage as a library (imported via `build.zig`).
 
 ```zig
 const std = @import("std");

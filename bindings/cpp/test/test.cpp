@@ -126,34 +126,43 @@ int main() {
         
         std::cout << "All C++ binding tests passed!" << std::endl;
         // --- Flush-on-Write Test ---
-    std::cout << "\nRunning Flush-on-Write Test..." << std::endl;
-    {
-        std::string test_dir = "b_cpp_test_data/flush";
-        std::filesystem::remove_all(test_dir);
+        std::cout << "\nRunning Flush-on-Write Test..." << std::endl;
+        {
+            std::string test_dir = "b_cpp_test_data/flush";
+            std::filesystem::remove_all(test_dir);
 
-        hocdb::Database db("TEST_FLUSH", test_dir, schema, 1024 * 1024, true, true);
+            hocdb::Database db("TEST_FLUSH", test_dir, schema, 1024 * 1024, true, true);
 
-        auto start = std::chrono::high_resolution_clock::now();
-        int count = 10000;
-        TradeData record;
-        for (int i = 0; i < count; i++) {
-            record.timestamp = i;
-            record.usd = i * 1.5;
-            record.volume = i * 2.5;
-            db.append(record);
+            auto start = std::chrono::high_resolution_clock::now();
+            int count = 10000;
+            TradeData record;
+            for (int i = 0; i < count; i++) {
+                record.timestamp = i;
+                record.usd = i * 1.5;
+                record.volume = i * 2.5;
+                db.append(record);
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> diff = end - start;
+            std::cout << "Appended " << count << " records with flush_on_write=true in " << diff.count() * 1000 << "ms" << std::endl;
+            std::cout << "Throughput: " << count / diff.count() << " ops/sec" << std::endl;
+
+            std::cout << "✅ Flush-on-Write Test Passed!" << std::endl;
+            std::filesystem::remove_all(test_dir);
         }
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> diff = end - start;
-        std::cout << "Appended " << count << " records with flush_on_write=true in " << diff.count() * 1000 << "ms" << std::endl;
-        std::cout << "Throughput: " << count / diff.count() << " ops/sec" << std::endl;
 
-        std::cout << "✅ Flush-on-Write Test Passed!" << std::endl;
-        std::filesystem::remove_all(test_dir);
-    }
+        // Final cleanup
+        if (std::filesystem::exists("b_cpp_test_data")) {
+            std::filesystem::remove_all("b_cpp_test_data");
+        }
 
-    return 0;
+        return 0;
     } catch (const std::exception& e) {
         std::cerr << "Test failed with exception: " << e.what() << std::endl;
+        // Attempt cleanup even on failure
+        if (std::filesystem::exists("b_cpp_test_data")) {
+            std::filesystem::remove_all("b_cpp_test_data");
+        }
         return 1;
     }
 }

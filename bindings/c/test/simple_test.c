@@ -95,6 +95,9 @@ int main() {
     hocdb_close(db);
     printf("Database closed successfully\n");
     
+    // Cleanup test data
+    system("rm -rf b_c_test_data");
+    
     printf("\nBasic C bindings test completed successfully!\n");
     return 0;
 }

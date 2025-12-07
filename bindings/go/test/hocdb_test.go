@@ -110,6 +110,10 @@ func TestHOCDB(t *testing.T) {
 	if stats.Max != 50001.0 {
 		t.Errorf("Expected max 50001.0, got %f", stats.Max)
 	}
+
+	// Cleanup
+	db.Close()
+	os.RemoveAll(testDir)
 }
 
 func TestCreateRecordBytes(t *testing.T) {
@@ -261,7 +265,7 @@ func BenchmarkAppend(b *testing.B) {
 	}
 	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
-	// defer os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir)
 
 	db, _ := hocdb.New("BENCH_APPEND", testDir, schema, hocdb.Options{})
 	defer db.Close()
@@ -282,7 +286,7 @@ func BenchmarkLoad(b *testing.B) {
 	}
 	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
-	// defer os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir)
 
 	db, _ := hocdb.New("BENCH_LOAD", testDir, schema, hocdb.Options{})
 	defer db.Close()
@@ -307,7 +311,7 @@ func BenchmarkGetStats(b *testing.B) {
 	}
 	testDir := "../../../b_go_test_data"
 	os.MkdirAll(testDir, 0755)
-	// defer os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir)
 
 	db, _ := hocdb.New("BENCH_STATS", testDir, schema, hocdb.Options{})
 	defer db.Close()
@@ -330,7 +334,9 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup
-	// os.RemoveAll("./b_go_test_data")
+	os.RemoveAll("../../../b_go_test_data")
+	os.RemoveAll("../../../b_go_test_data_filter")
+	os.RemoveAll("../../../b_go_test_auto_inc")
 
 	// Exit with the same code as the tests
 	os.Exit(code)

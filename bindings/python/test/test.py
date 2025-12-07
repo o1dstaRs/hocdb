@@ -234,6 +234,15 @@ def main():
     # Make sure we're in the right directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
+    
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    test_data_dir = os.path.join(project_root, "b_python_test_data")
+
+    import shutil
+    
+    # Cleanup before run
+    if os.path.exists(test_data_dir):
+        shutil.rmtree(test_data_dir)
 
     try:
         test_basic_functionality()
@@ -245,6 +254,10 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Cleanup after run
+        if os.path.exists(test_data_dir):
+            shutil.rmtree(test_data_dir)
 
 
 if __name__ == "__main__":
