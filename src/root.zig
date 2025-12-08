@@ -83,6 +83,12 @@ pub const DynamicTimeSeriesDB = struct {
         overwrite_on_full: bool = true,
         flush_on_write: bool = false,
         auto_increment: bool = false,
+        index_stride: u64 = 1024, // Number of records between index entries
+    };
+
+    pub const IndexEntry = struct {
+        timestamp: i64,
+        index: u64,
     };
 
     // Magic header: "HOC1"
@@ -170,6 +176,10 @@ pub const DynamicTimeSeriesDB = struct {
     schema_hash: u64,
     fields: []FieldInfo, // Store schema fields
     full_path: []const u8,
+
+    // In-memory Sparse Index (Linear mode only)
+    sparse_index: std.ArrayListUnmanaged(IndexEntry) = .{},
+    index_stride: u64,
 
     allocator: std.mem.Allocator,
 
@@ -407,12 +417,33 @@ pub const DynamicTimeSeriesDB = struct {
             .allocator = allocator,
             .is_wrapped = is_wrapped,
             .full_path = full_path,
+            .sparse_index = .{},
+            .index_stride = config.index_stride,
         };
     }
 
+    // Power-up the index after init
+    pub fn buildIndex(self: *Self) !void {
+        // Only build index if not wrapped and not empty
+        if (self.is_wrapped) return;
+        const total_count = self.count();
+        if (total_count == 0) return;
+
+        // Reserve approximate capacity
+        const capacity = (total_count / self.index_stride) + 1;
+        try self.sparse_index.ensureTotalCapacity(self.allocator, capacity);
+
+        var i: u64 = 0;
+        while (i < total_count) : (i += self.index_stride) {
+            const ts = try self.readTimestampAt(i);
+            try self.sparse_index.append(self.allocator, .{ .timestamp = ts, .index = i });
+        }
+    }
+
     // Post-init to set up self-referencing buffered writer
-    pub fn initWriter(self: *Self) void {
+    pub fn initWriter(self: *Self) !void {
         self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
+        try self.buildIndex();
     }
 
     pub fn deinit(self: *Self) void {
@@ -425,6 +456,7 @@ pub const DynamicTimeSeriesDB = struct {
         for (self.fields) |f| self.allocator.free(f.name);
         self.allocator.free(self.fields);
         self.allocator.free(self.full_path);
+        self.sparse_index.deinit(self.allocator);
     }
 
     pub fn drop(self: *Self) !void {
@@ -439,6 +471,7 @@ pub const DynamicTimeSeriesDB = struct {
         for (self.fields) |f| self.allocator.free(f.name);
         self.allocator.free(self.fields);
         self.allocator.free(self.full_path);
+        self.sparse_index.deinit(self.allocator);
 
         // We should probably mark self as invalid or something, but the caller should destroy the struct.
         // The caller (C binding) will call allocator.destroy(db).
@@ -475,6 +508,36 @@ pub const DynamicTimeSeriesDB = struct {
             self.last_timestamp = ts;
 
             try self.buffered_writer.write(data);
+        }
+
+        // Maintain Sparse Index
+        if (self.is_wrapped) {
+            // If wrapped, we disable the index for correctness
+            if (self.sparse_index.items.len > 0) {
+                self.sparse_index.clearAndFree(self.allocator);
+            }
+        } else {
+            // Linear, safe to index
+            // Calculate logical bytes written including buffer
+            // self.write_cursor is the file offset where the buffer WILL be written.
+            const logical_bytes = (self.write_cursor - HEADER_SIZE) + self.buffered_writer.index;
+            const current_count = logical_bytes / self.record_size;
+            
+            // The record we just appended is at index `current_count - 1`
+            if (current_count > 0) {
+                const new_rec_idx = current_count - 1;
+                if (new_rec_idx % self.index_stride == 0) {
+                    // Determine timestamp of this record
+                    var ts: i64 = 0;
+                    if (self.auto_increment) {
+                        ts = self.last_timestamp orelse 0;
+                    } else {
+                        ts = std.mem.bytesToValue(i64, data[self.timestamp_offset .. self.timestamp_offset + 8]);
+                    }
+                    
+                    try self.sparse_index.append(self.allocator, .{ .timestamp = ts, .index = new_rec_idx });
+                }
+            }
         }
 
         if (self.flush_on_write) {
@@ -520,6 +583,78 @@ pub const DynamicTimeSeriesDB = struct {
     pub fn binarySearch(self: *Self, target: i64) !u64 {
         var left: u64 = 0;
         var right: u64 = self.count();
+
+        // Sparse Index Optimization
+        if (self.sparse_index.items.len > 0) {
+             // We can narrow the search range
+             const SearchContext = struct {
+                 pub fn compare(key: i64, entry: IndexEntry) std.math.Order {
+                     return std.math.order(key, entry.timestamp);
+                 }
+             };
+             // Find the first entry where entry.timestamp >= target
+             // lowerBound returns index of first element >= key
+             // But we want the range where target COULD be.
+             // If sparse_index = [ {100, 0}, {200, 100}, {300, 200} ]
+             // target = 150.
+             // binarySearch(150) -> matches index 1 (200).
+             // Implementation uses `std.sort.lowerBound`.
+             
+             const idx_idx = std.sort.lowerBound(IndexEntry, self.sparse_index.items, target, SearchContext.compare);
+             
+             if (idx_idx > 0) {
+                 // The target might be in the block starting at idx_idx - 1
+                 left = self.sparse_index.items[idx_idx - 1].index;
+             } else {
+                 left = 0;
+             }
+
+             if (idx_idx < self.sparse_index.items.len) {
+                 // The target is definitely before idx_idx (since entry.ts >= target)
+                 // actually, if entry.ts == target, it could be AT idx_idx.
+                 // safe upper bound:
+                 right = self.sparse_index.items[idx_idx].index + 1; 
+                 // Wait, if target == 200, lowerBound returns index 1 ({200, 100}).
+                 // record at 100 is 200.
+                 // left = items[0].index = 0.
+                 // right = items[1].index = 100.
+                 // So we search 0..100. Record 100 is 200. binarySearch(200) on 0..100 returns 100? No.
+                 // Range 0..100 excludes 100.
+                 // binarySearch contract: returns first index where ts >= target.
+                 // If record[100].ts == 200, we want 100.
+                 // So right boundary should be inclusive? No, `right` in binary search is exclusive usually.
+                 // Let's look at existing binarySearch loop:
+                 // while (left < right)
+                 // right starts at count().
+                 
+                 // If sparse index says {200, 100}.
+                 // target 200. lowerBound -> index 1.
+                 // We want strictly tighter bounds? 
+                 // Actually, if items[idx_idx].timestamp >= target.
+                 // The record at items[idx_idx].index has ts >= target.
+                 // So the answer must be <= items[idx_idx].index.
+                 // So right = items[idx_idx].index + 1? No.
+                 // Because multiple records can have same timestamp?
+                 // If record 100 has 200. record 101 has 200.
+                 // We want index 100.
+                 // So right can be items[idx_idx].index + 1?
+                 // Let's be safe:
+                 // right = items[idx_idx].index + self.index_stride? No.
+                 
+                 // If items[idx_idx] is the first entry >= target.
+                 // Then items[idx_idx].index is a valid candidate for the answer.
+                 // So right should include it.
+                 // right = items[idx_idx].index + 1. (Since loop is left < right).
+                 
+                 // HOWEVER, if lowerBound returned `len`, then target > all entries.
+                 // Then right = count().
+                 
+                  right = self.sparse_index.items[idx_idx].index + 1;
+             }
+             
+             // Clamp right to count() just in case
+             if (right > self.count()) right = self.count();
+        }
 
         while (left < right) {
             const mid = left + (right - left) / 2;
@@ -839,7 +974,7 @@ pub fn TimeSeriesDB(comptime T: type) type {
             var dynamic_db_ptr = try allocator.create(DynamicTimeSeriesDB);
             errdefer allocator.destroy(dynamic_db_ptr);
             dynamic_db_ptr.* = try DynamicTimeSeriesDB.init(ticker, dir_path, allocator, schema, config);
-            dynamic_db_ptr.initWriter();
+            try dynamic_db_ptr.initWriter();
 
             return Self{ .dynamic_db = dynamic_db_ptr, .allocator = allocator };
         }

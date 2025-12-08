@@ -91,7 +91,13 @@ export fn hocdb_init(ticker_z: [*:0]const u8, path_z: [*:0]const u8, schema_ptr:
         std.heap.c_allocator.destroy(db_ptr);
         return null;
     };
-    db_ptr.initWriter();
+    db_ptr.initWriter() catch {
+        std.heap.c_allocator.free(ticker_dupe);
+        std.heap.c_allocator.free(path_dupe);
+        db_ptr.deinit(); // Clean up file handle
+        std.heap.c_allocator.destroy(db_ptr);
+        return null;
+    };
 
     std.heap.c_allocator.free(ticker_dupe);
     std.heap.c_allocator.free(path_dupe);

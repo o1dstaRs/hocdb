@@ -220,7 +220,10 @@ fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         std.heap.c_allocator.destroy(db_ptr);
         return throwError(env, @errorName(err));
     };
-    db_ptr.initWriter();
+    db_ptr.initWriter() catch |err| {
+        std.heap.c_allocator.destroy(db_ptr);
+        return throwError(env, @errorName(err));
+    };
 
     var result: napi_value = undefined;
     _ = napi_create_external(env, db_ptr, null, null, &result);
@@ -595,7 +598,12 @@ export fn hocdb_init(ticker_ptr: [*]const u8, ticker_len: usize, path_ptr: [*]co
         std.heap.c_allocator.destroy(db_ptr);
         return null;
     };
-    db_ptr.initWriter();
+    db_ptr.initWriter() catch {
+        std.heap.c_allocator.free(ticker_dupe);
+        std.heap.c_allocator.free(path_dupe);
+        std.heap.c_allocator.destroy(db_ptr);
+        return null;
+    };
 
     std.heap.c_allocator.free(ticker_dupe);
     std.heap.c_allocator.free(path_dupe);
