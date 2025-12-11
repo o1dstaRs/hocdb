@@ -43,8 +43,8 @@ async function runTest() {
             throw new Error(`Expected ${count} records, got ${results.length}`);
         }
 
-        console.log("Getting stats asynchronously...");
-        const stats = await db.getStats(0, count, 1) as { min: number, max: number, sum: number, count: bigint, mean: number }; // Field index 1 is 'value'
+        console.log("Getting stats asynchronously (using string field 'value')...");
+        const stats = await db.getStats(0, count, "value") as { min: number, max: number, sum: number, count: bigint, mean: number };
         console.log("Stats:", stats);
         if (stats.count !== BigInt(count)) {
             throw new Error(`Expected stats count ${count}, got ${stats.count}`);

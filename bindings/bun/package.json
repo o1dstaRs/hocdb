@@ -1,7 +1,7 @@
 {
     "name": "hocdb-bun",
     "version": "0.1.0",
-    "description": "High-Performance Time-Series Database Bindings for Bun",
+    "description": "hocdb Bindings for Bun",
     "main": "index.js",
     "type": "module",
     "scripts": {

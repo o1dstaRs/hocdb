@@ -420,6 +420,24 @@ func (db *DB) GetLatest(fieldIndex int) (*Latest, error) {
 	return latest, nil
 }
 
+// GetStatsByName returns statistics for a specific field by name within a time range
+func (db *DB) GetStatsByName(startTs, endTs int64, fieldName string) (*Stats, error) {
+	idx, ok := db.fieldMap[fieldName]
+	if !ok {
+		return nil, fmt.Errorf("unknown field: %s", fieldName)
+	}
+	return db.GetStats(startTs, endTs, idx)
+}
+
+// GetLatestByName returns the latest value and timestamp for a specific field by name
+func (db *DB) GetLatestByName(fieldName string) (*Latest, error) {
+	idx, ok := db.fieldMap[fieldName]
+	if !ok {
+		return nil, fmt.Errorf("unknown field: %s", fieldName)
+	}
+	return db.GetLatest(idx)
+}
+
 // Close closes the database connection and frees resources
 func (db *DB) Close() {
 	if db.handle != nil {

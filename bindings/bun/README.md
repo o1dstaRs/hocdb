@@ -22,6 +22,14 @@ await db.append({ timestamp: 100, price: 50000.0 });
 // Query
 const results = await db.query(0, 200, { price: { gt: 40000.0 } });
 
+// Get Stats (using field name)
+const stats = await db.getStats(0, 1000, "price");
+console.log(stats);
+
+// Get Latest Value (using field name)
+const latest = await db.getLatest("price");
+console.log(latest);
+
 // Close
 await db.close();
 ```

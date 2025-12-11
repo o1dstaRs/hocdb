@@ -282,6 +282,36 @@ public:
     }
 
     /**
+     * @brief Get statistics for a specific field by name within a time range.
+     * @param start_ts Start timestamp
+     * @param end_ts End timestamp
+     * @param field_name Name of the field to get statistics for
+     * @return HOCDBStats struct containing min, max, sum, count, and avg
+     * @throws Exception if field not found or getting stats fails
+     */
+    HOCDBStats getStats(int64_t start_ts, int64_t end_ts, const std::string& field_name) {
+        auto it = field_map_.find(field_name);
+        if (it == field_map_.end()) {
+            throw Exception("Unknown field: " + field_name);
+        }
+        return getStats(start_ts, end_ts, it->second);
+    }
+
+    /**
+     * @brief Get the latest value and timestamp for a specific field by name.
+     * @param field_name Name of the field to get the latest value for
+     * @return std::pair containing the latest value (double) and its timestamp (int64_t)
+     * @throws Exception if field not found or getting the latest value fails
+     */
+    std::pair<double, int64_t> getLatest(const std::string& field_name) {
+        auto it = field_map_.find(field_name);
+        if (it == field_map_.end()) {
+             throw Exception("Unknown field: " + field_name);
+        }
+        return getLatest(it->second);
+    }
+
+    /**
      * @brief Free memory allocated by load()
      * @param ptr Pointer returned by load()
      */

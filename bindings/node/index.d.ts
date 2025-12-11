@@ -48,8 +48,8 @@ export interface DBInstance {
     append(data: Record<string, number | bigint>): void;
     load(): Record<string, number | bigint>[];
     query(start: bigint, end: bigint, filters?: Record<string, number | bigint> | any[]): Record<string, number | bigint>[];
-    getStats(start: bigint, end: bigint, field_index: number): { min: number, max: number, sum: number, count: bigint, mean: number };
-    getLatest(field_index: number): { value: number, timestamp: bigint };
+    getStats(start: bigint, end: bigint, field_index: number | string): { min: number, max: number, sum: number, count: bigint, mean: number };
+    getLatest(field_index: number | string): { value: number, timestamp: bigint };
     close(): void;
 }
 

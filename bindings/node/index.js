@@ -154,11 +154,23 @@ module.exports = {
             },
 
             getStats: (start, end, field_index) => {
-                return addon.dbGetStats(db, BigInt(start), BigInt(end), Number(field_index));
+                let index = field_index;
+                if (typeof field_index === 'string') {
+                    const info = fieldOffsets[field_index];
+                    if (!info) throw new Error(`Unknown field: ${field_index}`);
+                    index = info.index;
+                }
+                return addon.dbGetStats(db, BigInt(start), BigInt(end), Number(index));
             },
 
             getLatest: (field_index) => {
-                return addon.dbGetLatest(db, Number(field_index));
+                let index = field_index;
+                if (typeof field_index === 'string') {
+                    const info = fieldOffsets[field_index];
+                    if (!info) throw new Error(`Unknown field: ${field_index}`);
+                    index = info.index;
+                }
+                return addon.dbGetLatest(db, Number(index));
             },
 
             close: () => {
@@ -201,6 +213,12 @@ module.exports = {
             });
         };
 
+        // Local field offsets for async resolution
+        const fieldOffsets = {};
+        for (let i = 0; i < schema.length; i++) {
+            fieldOffsets[schema[i].name] = i;
+        }
+
         // Initialize DB in worker
         return callWorker('init', { ticker, path: dirPath, schema, config }).then(() => {
             return {
@@ -209,8 +227,22 @@ module.exports = {
                 flush: () => callWorker('flush', {}),
                 query: (start, end, filters) => callWorker('query', { start, end, filters }),
                 load: () => callWorker('load', {}),
-                getStats: (start, end, field_index) => callWorker('getStats', { start, end, field_index }),
-                getLatest: (field_index) => callWorker('getLatest', { field_index }),
+                getStats: (start, end, field_index) => {
+                    let index = field_index;
+                    if (typeof field_index === 'string') {
+                        index = fieldOffsets[field_index];
+                        if (index === undefined) throw new Error(`Unknown field: ${field_index}`);
+                    }
+                    return callWorker('getStats', { start, end, field_index: index });
+                },
+                getLatest: (field_index) => {
+                    let index = field_index;
+                    if (typeof field_index === 'string') {
+                        index = fieldOffsets[field_index];
+                        if (index === undefined) throw new Error(`Unknown field: ${field_index}`);
+                    }
+                    return callWorker('getLatest', { field_index: index });
+                },
                 close: () => callWorker('close', {}).then(() => worker.terminate()),
                 drop: () => callWorker('drop', {}).then(() => worker.terminate())
             };

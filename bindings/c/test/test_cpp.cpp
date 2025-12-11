@@ -58,6 +58,21 @@ int main() {
             return 1;
         }
 
+        std::cout << "Testing String API (getStats & getLatest)..." << std::endl;
+        auto stats = db.getStats(0, 1000, "value");
+        std::cout << "Stats for 'value': min=" << stats.min << ", max=" << stats.max << ", count=" << stats.count << std::endl;
+        if (stats.count != 3) {
+            std::cerr << "Expected count 3, got " << stats.count << std::endl;
+            return 1;
+        }
+
+        auto latest = db.getLatest("value");
+        std::cout << "Latest 'value': val=" << latest.first << ", ts=" << latest.second << std::endl;
+        if (latest.second != 300) {
+            std::cerr << "Expected latest ts 300, got " << latest.second << std::endl;
+            return 1;
+        }
+
         std::cout << "✅ C++ Verification Test Passed!" << std::endl;
 
     } catch (const std::exception& e) {

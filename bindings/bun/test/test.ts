@@ -64,6 +64,16 @@ function runBasicTest() {
             if (Number(last.timestamp) !== 999999) {
                 throw new Error("Last record timestamp mismatch!");
             }
+
+            // Test String API
+            console.log("Testing String API (getStats & getLatest)...");
+            const stats = db.getStats(0n, 1000n, "usd");
+            console.log(`Stats for 'usd' (0-1000): min=${stats.min}, max=${stats.max}, count=${stats.count}`);
+            if (stats.count !== 1000n) throw new Error("Stats count mismatch");
+
+            const latest = db.getLatest("usd");
+            console.log(`Latest 'usd': val=${latest.value}, ts=${latest.timestamp}`);
+            if (latest.timestamp !== 999999n) throw new Error("Latest timestamp mismatch");
         }
 
         console.log("Closing DB...");

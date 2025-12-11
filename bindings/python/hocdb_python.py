@@ -422,12 +422,29 @@ class HOCDB:
             # Free the C-allocated memory
             self.lib.hocdb_free(data_ptr)
     
-    def get_stats(self, start_ts: int, end_ts: int, field_index: int) -> dict:
+    def _resolve_field_index(self, field: Union[int, str]) -> int:
+        """Resolve field name or index to index"""
+        if isinstance(field, int):
+            return field
+        if isinstance(field, str):
+            if field not in self._field_map:
+                raise ValueError(f"Unknown field: {field}")
+            return self._field_map[field][0]
+        raise ValueError(f"Field must be int or str, got {type(field)}")
+
+    def get_stats(self, start_ts: int, end_ts: int, field: Union[int, str]) -> dict:
         """
         Get statistics for a specific field within a time range.
+        
+        Args:
+            start_ts: Start timestamp
+            end_ts: End timestamp
+            field: Field index (int) or name (str)
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
+        
+        field_index = self._resolve_field_index(field)
         
         class HOCDBStats(ctypes.Structure):
             _fields_ = [
@@ -451,12 +468,17 @@ class HOCDB:
             "mean": stats.mean
         }
 
-    def get_latest(self, field_index: int) -> dict:
+    def get_latest(self, field: Union[int, str]) -> dict:
         """
         Get the latest value and timestamp for a specific field.
+        
+        Args:
+            field: Field index (int) or name (str)
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
+        
+        field_index = self._resolve_field_index(field)
         
         val = ctypes.c_double()
         ts = ctypes.c_longlong()

@@ -40,6 +40,14 @@ db.append(record)
 data = db.load()
 print(f"Loaded {len(data)} bytes of data")
 
+# Get Stats (using field name)
+stats = db.get_stats(0, 1000, "price")
+print(stats)
+
+# Get Latest Value (using field name)
+latest = db.get_latest("price")
+print(latest)
+
 # Close when done
 db.close()
 ```

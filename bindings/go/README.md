@@ -108,9 +108,17 @@ Queries records within the specified time range [startTs, endTs).
 
 Returns statistics for a specific field within a time range.
 
+#### `GetStatsByName(startTs, endTs int64, fieldName string) (*Stats, error)`
+
+Returns statistics for a specific field (by name) within a time range.
+
 #### `GetLatest(fieldIndex int) (*Latest, error)`
 
 Returns the latest value and timestamp for a specific field.
+
+#### `GetLatestByName(fieldName string) (*Latest, error)`
+
+Returns the latest value and timestamp for a specific field (by name).
 
 #### `Flush() error`
 

@@ -72,6 +72,18 @@ print(f"Filtered Record: ts={ts}, val={val}")
 if ts != 300 or val != 3.0:
     raise RuntimeError(f"Expected ts=300, val=3.0, got ts={ts}, val={val}")
 
+# Test String API
+print("Testing String API (get_stats & get_latest)...")
+stats = db.get_stats(0, 1000, "value")
+print(f"Stats: {stats}")
+if stats['count'] != 5:
+    raise RuntimeError(f"Expected count 5, got {stats['count']}")
+
+latest = db.get_latest("value")
+print(f"Latest: {latest}")
+if latest['timestamp'] != 500:
+    raise RuntimeError(f"Expected latest ts 500, got {latest['timestamp']}")
+
 print("✅ Python Query Test Passed!")
 
 db.close()

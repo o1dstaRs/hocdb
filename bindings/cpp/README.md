@@ -42,6 +42,14 @@ int main() {
     // Flush to disk
     db.flush();
 
+    // Get Stats (using field name)
+    auto stats = db.getStats(0, 200, "usd");
+    // stats.min, stats.max, etc.
+
+    // Get Latest Value (using field name)
+    auto latest = db.getLatest("usd");
+    // latest.first (value), latest.second (timestamp)
+
     // Load data (Zero-Copy with RAII)
     auto data = hocdb::load_with_raii<Trade>(db);
     

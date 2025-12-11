@@ -70,30 +70,30 @@ const napi_valuetype = enum(c_int) {
     bigint = 9,
 };
 
-extern "c" fn napi_define_properties(env: napi_env, object: napi_value, property_count: usize, properties: [*]const napi_property_descriptor) napi_status;
-extern "c" fn napi_get_cb_info(env: napi_env, cbinfo: napi_callback_info, argc: *usize, argv: [*]napi_value, this_arg: ?*napi_value, data: ?*?*anyopaque) napi_status;
-extern "c" fn napi_create_string_utf8(env: napi_env, str: [*]const u8, length: usize, result: *napi_value) napi_status;
-extern "c" fn napi_create_double(env: napi_env, value: f64, result: *napi_value) napi_status;
-extern "c" fn napi_create_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
-extern "c" fn napi_get_value_double(env: napi_env, value: napi_value, result: *f64) napi_status;
-extern "c" fn napi_get_value_int64(env: napi_env, value: napi_value, result: *i64) napi_status;
-extern "c" fn napi_get_value_bigint_int64(env: napi_env, value: napi_value, result: *i64, lossless: *bool) napi_status;
-extern "c" fn napi_get_value_bigint_uint64(env: napi_env, value: napi_value, result: *u64, lossless: *bool) napi_status;
-extern "c" fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: ?[*]u8, bufsize: usize, result: ?*usize) napi_status;
-extern "c" fn napi_create_external(env: napi_env, data: *anyopaque, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
-extern "c" fn napi_get_value_external(env: napi_env, value: napi_value, result: *?*anyopaque) napi_status;
-extern "c" fn napi_throw_error(env: napi_env, code: ?[*:0]const u8, msg: [*:0]const u8) napi_status;
-extern "c" fn napi_create_external_arraybuffer(env: napi_env, external_data: *anyopaque, byte_length: usize, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
-extern "c" fn napi_typeof(env: napi_env, value: napi_value, result: *napi_valuetype) napi_status;
-extern "c" fn napi_get_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, result: *napi_value) napi_status;
-extern "c" fn napi_get_value_bool(env: napi_env, value: napi_value, result: *bool) napi_status;
-extern "c" fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *napi_value) napi_status;
-extern "c" fn napi_get_array_length(env: napi_env, value: napi_value, result: *u32) napi_status;
-extern "c" fn napi_get_buffer_info(env: napi_env, value: napi_value, data: *?*anyopaque, length: *usize) napi_status;
-extern "c" fn napi_create_object(env: napi_env, result: *napi_value) napi_status;
-extern "c" fn napi_set_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, value: napi_value) napi_status;
-extern "c" fn napi_create_bigint_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
-extern "c" fn napi_create_bigint_uint64(env: napi_env, value: u64, result: *napi_value) napi_status;
+extern "C" fn napi_define_properties(env: napi_env, object: napi_value, property_count: usize, properties: [*]const napi_property_descriptor) napi_status;
+extern "C" fn napi_get_cb_info(env: napi_env, cbinfo: napi_callback_info, argc: *usize, argv: [*]napi_value, this_arg: ?*napi_value, data: ?*?*anyopaque) napi_status;
+extern "C" fn napi_create_string_utf8(env: napi_env, str: [*]const u8, length: usize, result: *napi_value) napi_status;
+extern "C" fn napi_create_double(env: napi_env, value: f64, result: *napi_value) napi_status;
+extern "C" fn napi_create_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
+extern "C" fn napi_get_value_double(env: napi_env, value: napi_value, result: *f64) napi_status;
+extern "C" fn napi_get_value_int64(env: napi_env, value: napi_value, result: *i64) napi_status;
+extern "C" fn napi_get_value_bigint_int64(env: napi_env, value: napi_value, result: *i64, lossless: *bool) napi_status;
+extern "C" fn napi_get_value_bigint_uint64(env: napi_env, value: napi_value, result: *u64, lossless: *bool) napi_status;
+extern "C" fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: ?[*]u8, bufsize: usize, result: ?*usize) napi_status;
+extern "C" fn napi_create_external(env: napi_env, data: *anyopaque, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
+extern "C" fn napi_get_value_external(env: napi_env, value: napi_value, result: *?*anyopaque) napi_status;
+extern "C" fn napi_throw_error(env: napi_env, code: ?[*:0]const u8, msg: [*:0]const u8) napi_status;
+extern "C" fn napi_create_external_arraybuffer(env: napi_env, external_data: *anyopaque, byte_length: usize, finalize_cb: ?napi_finalize, finalize_hint: ?*anyopaque, result: *napi_value) napi_status;
+extern "C" fn napi_typeof(env: napi_env, value: napi_value, result: *napi_valuetype) napi_status;
+extern "C" fn napi_get_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, result: *napi_value) napi_status;
+extern "C" fn napi_get_value_bool(env: napi_env, value: napi_value, result: *bool) napi_status;
+extern "C" fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *napi_value) napi_status;
+extern "C" fn napi_get_array_length(env: napi_env, value: napi_value, result: *u32) napi_status;
+extern "C" fn napi_get_buffer_info(env: napi_env, value: napi_value, data: *?*anyopaque, length: *usize) napi_status;
+extern "C" fn napi_create_object(env: napi_env, result: *napi_value) napi_status;
+extern "C" fn napi_set_named_property(env: napi_env, object: napi_value, utf8name: [*]const u8, value: napi_value) napi_status;
+extern "C" fn napi_create_bigint_int64(env: napi_env, value: i64, result: *napi_value) napi_status;
+extern "C" fn napi_create_bigint_uint64(env: napi_env, value: u64, result: *napi_value) napi_status;
 
 // --- Helper Functions ---
 
@@ -147,12 +147,6 @@ fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     if (napi_get_array_length(env, args[2], &schema_len) != .ok) return throwError(env, "Invalid schema array");
 
     const fields = std.heap.c_allocator.alloc(hocdb.FieldInfo, schema_len) catch return throwError(env, "OOM");
-    // We need to keep the field names alive? No, DynamicTimeSeriesDB copies them?
-    // Wait, Schema struct has `[]const FieldInfo`, and FieldInfo has `[]const u8`.
-    // DynamicTimeSeriesDB computes hash from them but does NOT copy them for storage.
-    // It only uses them during init to compute hash and offsets.
-    // So we can free them after init.
-
     var i: u32 = 0;
     while (i < schema_len) : (i += 1) {
         var element: napi_value = undefined;
@@ -180,14 +174,13 @@ fn dbInit(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         fields[i] = .{ .name = name[0..name_len], .type = f_type };
     }
     defer {
-        for (fields) |f| std.heap.c_allocator.free(f.name.ptr[0 .. f.name.len + 1]); // +1 for null terminator we allocated
+        for (fields) |f| std.heap.c_allocator.free(f.name.ptr[0 .. f.name.len + 1]);
         std.heap.c_allocator.free(fields);
     }
 
     // Parse Config
     var config = DB.Config{};
     if (argc >= 4) {
-        // ... config parsing logic (same as before) ...
         var type_result: napi_valuetype = undefined;
         if (napi_typeof(env, args[3], &type_result) == .ok and type_result == .object) {
             var max_size_val: napi_value = undefined;
@@ -241,9 +234,6 @@ fn dbAppend(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     var data_ptr: ?*anyopaque = null;
     var data_len: usize = 0;
     if (napi_get_buffer_info(env, args[1], &data_ptr, &data_len) != .ok) {
-        // Try typed array? Or just assume buffer?
-        // Node.js Buffer is Uint8Array.
-        // napi_get_buffer_info works for Buffer.
         return throwError(env, "Invalid data buffer");
     }
 
@@ -288,11 +278,8 @@ fn dbLoad(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     _ = napi_get_value_external(env, args[0], &db_ptr);
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
 
-    // Use C allocator so we can free it with std.c.free in finalizer
-    // We need to adapt C allocator to Zig Allocator interface
     const allocator = std.heap.c_allocator;
 
-    // Flush any buffered data before loading
     db.flush() catch |err| {
         return throwError(env, @errorName(err));
     };
@@ -301,13 +288,8 @@ fn dbLoad(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         return throwError(env, @errorName(err));
     };
 
-    // Create External ArrayBuffer
     var result: napi_value = undefined;
     const byte_length = data.len;
-
-    // We pass 'data.ptr' as the data.
-    // We pass 'freeData' as finalizer.
-    // We don't need a hint if we use std.c.free.
 
     _ = napi_create_external_arraybuffer(env, data.ptr, byte_length, freeData, null, &result);
     return result;
@@ -332,7 +314,6 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp");
     }
 
-    // Parse Filters
     var filters_len: u32 = 0;
     if (napi_get_array_length(env, args[3], &filters_len) != .ok) return throwError(env, "Invalid filters array");
 
@@ -375,7 +356,7 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         } else if (std.mem.eql(u8, type_str[0..type_len], "u64")) {
             var val: u64 = 0;
             var l: bool = true;
-            if (napi_get_value_bigint_uint64(env, value_val, &val, &l) != .ok) return throwError(env, "Invalid u64 value"); // u64 must be bigint usually
+            if (napi_get_value_bigint_uint64(env, value_val, &val, &l) != .ok) return throwError(env, "Invalid u64 value");
             filters[i] = .{ .field_index = @intCast(field_index), .value = .{ .u64 = val } };
         } else if (std.mem.eql(u8, type_str[0..type_len], "bool")) {
             var val: bool = false;
@@ -394,7 +375,6 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
         return throwError(env, @errorName(err));
     };
 
-    // Create External ArrayBuffer
     var result: napi_value = undefined;
     const byte_length = data.len;
 

@@ -111,6 +111,24 @@ func TestHOCDB(t *testing.T) {
 		t.Errorf("Expected max 50001.0, got %f", stats.Max)
 	}
 
+	// Test GetStatsByName (String API)
+	statsStr, err := db.GetStatsByName(1620000000, 1620000002, "price")
+	if err != nil {
+		t.Fatalf("Failed to get stats by name: %v", err)
+	}
+	if statsStr.Count != 2 {
+		t.Errorf("Expected count 2 for GetStatsByName, got %d", statsStr.Count)
+	}
+
+	// Test GetLatestByName (String API)
+	latestStr, err := db.GetLatestByName("price")
+	if err != nil {
+		t.Fatalf("Failed to get latest by name: %v", err)
+	}
+	if latestStr.Value != 50001.0 {
+		t.Errorf("Expected latest price 50001.0 for GetLatestByName, got %f", latestStr.Value)
+	}
+
 	// Cleanup
 	db.Close()
 	os.RemoveAll(testDir)

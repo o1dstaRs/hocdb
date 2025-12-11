@@ -214,8 +214,12 @@ pub fn main() !void {
     defer allocator.free(results);
 
     // Aggregation
-    const stats = try db.getStats(1620000000, 1620000100, 1); 
+    const stats = try db.getStatsByName(1620000000, 1620000100, "price");
     std.debug.print("Min: {d}, Max: {d}\n", .{ stats.min, stats.max });
+
+    // Get Latest Value
+    const latest = try db.getLatestByName("price");
+    std.debug.print("Latest value: {d}, Timestamp: {d}\n", .{ latest.value, latest.timestamp });
 
     // Drop Database (Close & Delete)
     try db.drop();
@@ -257,8 +261,12 @@ filters = {"ticker": "BTC"}
 results = db.query(1620000000, 1620000100, filters)
 
 # Aggregation
-stats = db.get_stats(1620000000, 1620000100, 1)
+stats = db.get_stats(1620000000, 1620000100, "price")
 print(f"Min: {stats.min}, Max: {stats.max}")
+
+# Get Latest Value
+latest = db.get_latest("price")
+print(f"Latest value: {latest.value}, Timestamp: {latest.timestamp}")
 
 # Drop
 db.drop()
@@ -294,8 +302,12 @@ async function run() {
     const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
 
     // Aggregation
-    const stats = await db.getStats(1620000000n, 1620000100n, 1);
+    const stats = await db.getStats(1620000000n, 1620000100n, "price");
     console.log(`Min: ${stats.min}, Max: ${stats.max}`);
+
+    // Get Latest Value
+    const latest = await db.getLatest("price");
+    console.log(`Latest value: ${latest.value}, Timestamp: ${latest.timestamp}`);
 
     // Drop
     await db.drop();
@@ -328,8 +340,12 @@ await db.append({
 const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
 
 // Aggregation
-const stats = await db.getStats(1620000000n, 1620000100n, 1);
+const stats = await db.getStats(1620000000n, 1620000100n, "price");
 console.log(stats);
+
+// Get Latest Value
+const latest = await db.getLatest("price");
+console.log(latest);
 
 // Drop
 await db.drop();
@@ -359,6 +375,14 @@ int main() {
     filters["ticker"] = "BTC";
     
     auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100, filters);
+
+    // Aggregation
+    auto stats = db.getStatsByName(1620000000, 1620000100, "price");
+    // stats.min, stats.max, etc.
+
+    // Get Latest Value
+    auto latest = db.getLatestByName("price");
+    // latest.first (value), latest.second (timestamp)
 
     // Drop
     db.drop();
@@ -401,6 +425,20 @@ func main() {
     }
     data, _ := db.Query(1620000000, 1620000100, filters)
     fmt.Printf("Queried %d bytes\n", len(data))
+
+    // Aggregation
+    stats, err := db.GetStatsByName(1620000000, 1620000100, "price")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("Min: %f, Max: %f\n", stats.Min, stats.Max)
+
+    // Get Latest Value
+    latest, err := db.GetLatestByName("price")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("Latest value: %f, Timestamp: %d\n", latest.Value, latest.Timestamp)
 
     // Drop
     db.Drop()

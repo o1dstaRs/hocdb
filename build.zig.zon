@@ -2,7 +2,7 @@
     .name = .hocdb,
     .version = "0.1.0",
     .fingerprint = 0xe499f76a635ae979,
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.15.2",
     .dependencies = .{},
     .paths = .{
         "build.zig",
