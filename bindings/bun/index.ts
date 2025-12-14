@@ -321,23 +321,20 @@ export class HOCDB {
         return parseBuffer(buffer, this.recordSize, this.fieldOffsets);
     }
 
-<<<<<<< HEAD
-    private resolveFieldIndex(field: number | string): number {
-        if (typeof field === 'number') return field;
-        const info = this.fieldOffsets[field];
-        if (!info) throw new Error(`Unknown field: ${field}`);
-        return info.index;
-    }
-
     getStats(start: bigint, end: bigint, fieldIndex: number | string): { min: number, max: number, sum: number, count: bigint, mean: number } {
-        const index = this.resolveFieldIndex(fieldIndex);
-        // Struct layout: min(f64), max(f64), sum(f64), count(u64), mean(f64)
-        // Size: 8 + 8 + 8 + 8 + 8 = 40 bytes
-=======
-    getStats(start: bigint, end: bigint, fieldIndex: number): { min: number, max: number, sum: number, count: bigint, mean: number } {
->>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
+        let idx: bigint;
+        if (typeof fieldIndex === 'string') {
+            const field = this.fieldOffsets[fieldIndex];
+            if (!field) {
+                throw new Error(`Field '${fieldIndex}' not found in schema`);
+            }
+            idx = BigInt(field.index);
+        } else {
+            idx = BigInt(Math.floor(fieldIndex));
+        }
+
         const statsBuffer = new Uint8Array(40);
-        const res = symbols.hocdb_get_stats(this.db, start, end, BigInt(index), ptr(statsBuffer));
+        const res = symbols.hocdb_get_stats(this.db, start, end, idx, ptr(statsBuffer));
 
         if (res !== 0) {
             throw new Error("getStats failed");
@@ -354,11 +351,21 @@ export class HOCDB {
     }
 
     getLatest(fieldIndex: number | string): { value: number, timestamp: bigint } {
-        const index = this.resolveFieldIndex(fieldIndex);
         const valPtr = new Float64Array(1);
         const tsPtr = new BigInt64Array(1);
 
-        const res = symbols.hocdb_get_latest(this.db, BigInt(index), ptr(valPtr), ptr(tsPtr));
+        let idx: bigint;
+        if (typeof fieldIndex === 'string') {
+            const field = this.fieldOffsets[fieldIndex];
+            if (!field) {
+                throw new Error(`Field '${fieldIndex}' not found in schema`);
+            }
+            idx = BigInt(field.index);
+        } else {
+            idx = BigInt(Math.floor(fieldIndex));
+        }
+
+        const res = symbols.hocdb_get_latest(this.db, idx, ptr(valPtr), ptr(tsPtr));
 
         if (res !== 0) {
             throw new Error("getLatest failed");
@@ -394,8 +401,6 @@ export class HOCDBAsync {
     private worker: Worker;
     private msgId: number = 0;
     private pending: Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void }>;
-    // Cache schema locally to resolve field names
-    private fieldOffsets: Record<string, number> = {};
 
     // Schema info for parsing raw buffers
     recordSize: number;
@@ -406,17 +411,10 @@ export class HOCDBAsync {
         this.worker = new Worker(workerURL);
         this.pending = new Map();
 
-<<<<<<< HEAD
-        // Build field offsets sync
-        for (let i = 0; i < schema.length; i++) {
-            this.fieldOffsets[schema[i].name] = i;
-        }
-=======
         // Process schema locally so we can parse raw buffers
         const { recordSize, fieldOffsets } = processSchema(schema);
         this.recordSize = recordSize;
         this.fieldOffsets = fieldOffsets;
->>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
 
         this.worker.onmessage = (event) => {
             const { id, result, error } = event.data;
@@ -432,10 +430,6 @@ export class HOCDBAsync {
             console.error("Worker error:", err);
         };
 
-<<<<<<< HEAD
-        // Initialize DB in worker
-=======
->>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
         this.callWorker('init', { ticker, path, schema, config }).catch(err => {
             console.error("Failed to initialize HOCDBAsync:", err);
         });
@@ -447,13 +441,6 @@ export class HOCDBAsync {
             this.pending.set(id, { resolve, reject });
             this.worker.postMessage({ id, type, payload });
         });
-    }
-
-    private resolveFieldIndex(field: number | string): number {
-        if (typeof field === 'number') return field;
-        const index = this.fieldOffsets[field];
-        if (index === undefined) throw new Error(`Unknown field: ${field}`);
-        return index;
     }
 
     async append(data: any): Promise<void> {
@@ -481,14 +468,12 @@ export class HOCDBAsync {
         return this.callWorker('load', {});
     }
 
-    async getStats(start: bigint | number, end: bigint | number, fieldIndex: number | string): Promise<any> {
-        const index = this.resolveFieldIndex(fieldIndex);
-        return this.callWorker('getStats', { start, end, field_index: index });
+    async getStats(start: bigint | number, end: bigint | number, field_index: number): Promise<any> {
+        return this.callWorker('getStats', { start, end, field_index });
     }
 
-    async getLatest(fieldIndex: number | string): Promise<any> {
-        const index = this.resolveFieldIndex(fieldIndex);
-        return this.callWorker('getLatest', { field_index: index });
+    async getLatest(field_index: number): Promise<any> {
+        return this.callWorker('getLatest', { field_index });
     }
 
     async close(): Promise<void> {
