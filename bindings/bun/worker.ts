@@ -30,6 +30,11 @@ self.onmessage = (event: MessageEvent) => {
                 db.flush();
                 result = { success: true };
                 break;
+            case 'queryRaw':
+                if (!db) throw new Error("DB not initialized");
+                result = db.queryRaw(payload.start, payload.end, payload.filters);
+                self.postMessage({ id, result }, { transfer: [result] });
+                return;
             case 'query':
                 if (!db) throw new Error("DB not initialized");
                 result = db.query(payload.start, payload.end, payload.filters);

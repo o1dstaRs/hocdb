@@ -67,6 +67,64 @@ export interface Filter {
     value: number | bigint | string;
 }
 
+interface SchemaInfo {
+    recordSize: number;
+    fieldOffsets: Record<string, { offset: number, type: string, index: number }>;
+}
+
+function processSchema(schema: FieldDef[]): SchemaInfo & { nameBuffers: Uint8Array[], schemaBuffer: Uint8Array } {
+    let recordSize = 0;
+    const fieldOffsets: Record<string, { offset: number, type: string, index: number }> = {};
+    const nameBuffers: Uint8Array[] = [];
+    const schemaBuffer = new Uint8Array(schema.length * 16);
+    const schemaView = new DataView(schemaBuffer.buffer);
+
+    for (let i = 0; i < schema.length; i++) {
+        const field = schema[i];
+        if (!field) continue;
+        fieldOffsets[field.name] = { offset: recordSize, type: field.type, index: i };
+
+        let typeCode;
+        let size;
+        switch (field.type) {
+            case "i64": typeCode = 1; size = 8; break;
+            case "f64": typeCode = 2; size = 8; break;
+            case "u64": typeCode = 3; size = 8; break;
+            case "bool": typeCode = 6; size = 1; break;
+            default: throw new Error(`Unsupported field type: ${field.type}`);
+        }
+        recordSize += size;
+
+        const nameBytes = encoder.encode(field.name + "\0");
+        nameBuffers.push(nameBytes);
+
+        schemaView.setBigUint64(i * 16, BigInt(ptr(nameBytes)), true);
+        schemaView.setInt32(i * 16 + 8, typeCode, true);
+    }
+    return { recordSize, fieldOffsets, nameBuffers, schemaBuffer };
+}
+
+function parseBuffer(buffer: ArrayBuffer, recordSize: number, fieldOffsets: Record<string, { offset: number, type: string, index: number }>): Record<string, number | bigint>[] {
+    const view = new DataView(buffer);
+    const count = buffer.byteLength / recordSize;
+    const result = new Array(count);
+
+    for (let i = 0; i < count; i++) {
+        const record: Record<string, number | bigint> = {};
+        const base = i * recordSize;
+        for (const [name, info] of Object.entries(fieldOffsets)) {
+            switch (info.type) {
+                case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
+                case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
+                case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
+                case 'bool': record[name] = view.getUint8(base + info.offset); break;
+            }
+        }
+        result[i] = record;
+    }
+    return result;
+}
+
 export class HOCDB {
     db: any;
     schema: FieldDef[];
@@ -84,37 +142,10 @@ export class HOCDB {
 
         // Process schema
         this.schema = schema;
-        this.recordSize = 0;
-        this.fieldOffsets = {};
-
-        // Prepare schema for C-ABI
-        const schemaBuffer = new Uint8Array(schema.length * 16);
-        const schemaView = new DataView(schemaBuffer.buffer);
-
-        this.nameBuffers = [];
-
-        for (let i = 0; i < schema.length; i++) {
-            const field = schema[i];
-            if (!field) continue;
-            this.fieldOffsets[field.name] = { offset: this.recordSize, type: field.type, index: i };
-
-            let typeCode;
-            let size;
-            switch (field.type) {
-                case "i64": typeCode = 1; size = 8; break;
-                case "f64": typeCode = 2; size = 8; break;
-                case "u64": typeCode = 3; size = 8; break;
-                case "bool": typeCode = 6; size = 1; break;
-                default: throw new Error(`Unsupported field type: ${field.type}`);
-            }
-            this.recordSize += size;
-
-            const nameBytes = encoder.encode(field.name + "\0");
-            this.nameBuffers.push(nameBytes);
-
-            schemaView.setBigUint64(i * 16, BigInt(ptr(nameBytes)), true);
-            schemaView.setInt32(i * 16 + 8, typeCode, true);
-        }
+        const { recordSize, fieldOffsets, nameBuffers, schemaBuffer } = processSchema(schema);
+        this.recordSize = recordSize;
+        this.fieldOffsets = fieldOffsets;
+        this.nameBuffers = nameBuffers;
 
         const maxSize = config.max_file_size ? BigInt(config.max_file_size) : 0n;
         const overwrite = config.overwrite_on_full === false ? 0 : 1;
@@ -178,37 +209,42 @@ export class HOCDB {
         }
 
         const totalBytes = Number(lenPtr[0]);
-        const buffer = toArrayBuffer(dataPtr, 0, totalBytes);
-        const view = new DataView(buffer);
+        const viewBuffer = toArrayBuffer(dataPtr, 0, totalBytes);
+        // Copy buffer because we're about to free logic?
+        // Actually for load() specifically we might not want to optimize yet, but consistency is good.
+        // But load() is rarely used in hot path compared to query.
 
-        const count = totalBytes / this.recordSize;
-        const result = new Array(count);
+        const result = parseBuffer(viewBuffer, this.recordSize, this.fieldOffsets);
 
-        for (let i = 0; i < count; i++) {
-            const record: Record<string, number | bigint> = {};
-            const base = i * this.recordSize;
-            for (const [name, info] of Object.entries(this.fieldOffsets)) {
-                switch (info.type) {
-                    case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
-                    case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
-                    case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
-                }
-            }
-            result[i] = record;
-        }
+        // Wait, parseBuffer does not copy, it reads.
+        // We handle logic: read, then free.
 
+        // symbols.hocdb_free is NOT called in original load() implementation??
+        // Checking original code... 
+        // Original: const buffer = toArrayBuffer(...); ... return result;
+        // IT WAS LEAKING! Original load() definition didn't call hocdb_free!
+        // Wait, looking at file content provided in Context...
+        // lines 172-201.
+        // It does NOT call hocdb_free(dataPtr).
+        // That is a leak in load() too!
+        // Wait, hocdb_load in zig returns a pointer to internal buffer?
+        // No, zig function: 
+        // `const data = db.load(std.heap.c_allocator) catch return null;`
+        // It allocates using c_allocator. So it MUST be freed.
+        // The previous implementation of load() was leaking memory.
+
+        symbols.hocdb_free(dataPtr);
         return result;
     }
 
-    query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): Record<string, number | bigint>[] {
+    queryRaw(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): ArrayBuffer {
         if (!this.db) throw new Error("Database not initialized");
-
+        // ... filter logic same as query ...
         let filterArray: Filter[] = [];
 
         if (Array.isArray(filters)) {
             filterArray = filters;
         } else {
-            // Convert object to array
             for (const [key, value] of Object.entries(filters)) {
                 const info = this.fieldOffsets[key];
                 if (!info) throw new Error(`Unknown field in filter: ${key}`);
@@ -220,41 +256,33 @@ export class HOCDB {
         }
 
         const lenPtr = new BigUint64Array(1);
-
         let filtersPtr = null;
         let filtersBuf = null;
 
         if (filterArray.length > 0) {
-            // Construct C filter array
-            // Struct size: 168 + 8 (bool + padding) = 176 bytes
             const structSize = 176;
             filtersBuf = new Uint8Array(filterArray.length * structSize);
             const view = new DataView(filtersBuf.buffer);
-
             for (let i = 0; i < filterArray.length; i++) {
                 const offset = i * structSize;
                 const f = filterArray[i];
                 if (!f) continue;
-
-                view.setBigUint64(offset, BigInt(f.field_index), true); // Little endian
-
+                view.setBigUint64(offset, BigInt(f.field_index), true);
                 if (typeof f.value === 'bigint') {
-                    view.setInt32(offset + 8, 1, true); // Type I64
+                    view.setInt32(offset + 8, 1, true);
                     view.setBigInt64(offset + 16, f.value, true);
                 } else if (typeof f.value === 'number') {
-                    // Could be f64 or i64 (if small int). Assume f64 for number.
-                    view.setInt32(offset + 8, 2, true); // Type F64
+                    view.setInt32(offset + 8, 2, true);
                     view.setFloat64(offset + 24, f.value, true);
                 } else if (typeof f.value === 'string') {
-                    view.setInt32(offset + 8, 5, true); // Type String
+                    view.setInt32(offset + 8, 5, true);
                     const strBytes = encoder.encode(f.value);
-                    // Copy to offset 40
                     for (let j = 0; j < Math.min(strBytes.length, 128); j++) {
-                        filtersBuf[offset + 40 + j] = strBytes[j];
+                        filtersBuf[offset + 40 + j] = strBytes[j]!;
                     }
                 } else if (typeof f.value === 'boolean') {
-                    view.setInt32(offset + 8, 6, true); // Type Bool
-                    view.setUint8(offset + 168, f.value ? 1 : 0); // val_bool is at end of struct, check offset!
+                    view.setInt32(offset + 8, 6, true);
+                    view.setUint8(offset + 168, f.value ? 1 : 0);
                 }
             }
             filtersPtr = ptr(filtersBuf);
@@ -264,42 +292,36 @@ export class HOCDB {
             this.db,
             BigInt(startTs),
             BigInt(endTs),
-            filtersPtr ?? 0, // Pass 0 (null pointer) if filtersPtr is null
+            filtersPtr ?? 0,
             BigInt(filterArray.length),
             ptr(lenPtr)
         );
 
-        if (!dataPtr && lenPtr[0] > 0n) {
+        if (!dataPtr && lenPtr[0]! > 0n) {
             throw new Error("Query failed");
         }
 
-        if (lenPtr[0] === 0n) return [];
+        if (lenPtr[0] === 0n) return new ArrayBuffer(0);
 
-        const totalBytes = Number(lenPtr[0]);
-        const buffer = toArrayBuffer(dataPtr, 0, totalBytes);
-        const view = new DataView(buffer);
+        const totalBytes = Number(lenPtr[0]!);
+        // View into native memory
+        // We verified dataPtr is not null above (if len > 0)
+        const viewBuffer = toArrayBuffer(dataPtr!, 0, totalBytes);
 
-        const count = totalBytes / this.recordSize;
-        const result = new Array(count);
-
-        for (let i = 0; i < count; i++) {
-            const record: Record<string, number | bigint> = {};
-            const base = i * this.recordSize;
-            for (const [name, info] of Object.entries(this.fieldOffsets)) {
-                switch (info.type) {
-                    case 'i64': record[name] = view.getBigInt64(base + info.offset, true); break;
-                    case 'f64': record[name] = view.getFloat64(base + info.offset, true); break;
-                    case 'u64': record[name] = view.getBigUint64(base + info.offset, true); break;
-                }
-            }
-            result[i] = record;
-        }
+        // CRITICAL: We MUST copy the data because we are about to free the native pointer.
+        // .slice() on an ArrayBuffer creates a copy.
+        const copy = viewBuffer.slice(0); // Make a copy
 
         symbols.hocdb_free(dataPtr);
-
-        return result;
+        return copy;
     }
 
+    query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): Record<string, number | bigint>[] {
+        const buffer = this.queryRaw(startTs, endTs, filters);
+        return parseBuffer(buffer, this.recordSize, this.fieldOffsets);
+    }
+
+<<<<<<< HEAD
     private resolveFieldIndex(field: number | string): number {
         if (typeof field === 'number') return field;
         const info = this.fieldOffsets[field];
@@ -311,6 +333,9 @@ export class HOCDB {
         const index = this.resolveFieldIndex(fieldIndex);
         // Struct layout: min(f64), max(f64), sum(f64), count(u64), mean(f64)
         // Size: 8 + 8 + 8 + 8 + 8 = 40 bytes
+=======
+    getStats(start: bigint, end: bigint, fieldIndex: number): { min: number, max: number, sum: number, count: bigint, mean: number } {
+>>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
         const statsBuffer = new Uint8Array(40);
         const res = symbols.hocdb_get_stats(this.db, start, end, BigInt(index), ptr(statsBuffer));
 
@@ -372,15 +397,26 @@ export class HOCDBAsync {
     // Cache schema locally to resolve field names
     private fieldOffsets: Record<string, number> = {};
 
+    // Schema info for parsing raw buffers
+    recordSize: number;
+    fieldOffsets: Record<string, { offset: number, type: string, index: number }>;
+
     constructor(ticker: string, path: string, schema: FieldDef[], config: any = {}) {
         const workerURL = new URL("worker.ts", import.meta.url).href;
         this.worker = new Worker(workerURL);
         this.pending = new Map();
 
+<<<<<<< HEAD
         // Build field offsets sync
         for (let i = 0; i < schema.length; i++) {
             this.fieldOffsets[schema[i].name] = i;
         }
+=======
+        // Process schema locally so we can parse raw buffers
+        const { recordSize, fieldOffsets } = processSchema(schema);
+        this.recordSize = recordSize;
+        this.fieldOffsets = fieldOffsets;
+>>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
 
         this.worker.onmessage = (event) => {
             const { id, result, error } = event.data;
@@ -396,7 +432,10 @@ export class HOCDBAsync {
             console.error("Worker error:", err);
         };
 
+<<<<<<< HEAD
         // Initialize DB in worker
+=======
+>>>>>>> fcc6be2 (Fixing memory usage in bun bindings)
         this.callWorker('init', { ticker, path, schema, config }).catch(err => {
             console.error("Failed to initialize HOCDBAsync:", err);
         });
@@ -430,7 +469,12 @@ export class HOCDBAsync {
     }
 
     async query(start: bigint | number, end: bigint | number, filters: any): Promise<any[]> {
-        return this.callWorker('query', { start, end, filters });
+        // Request RAW buffer from worker
+        const buffer = await this.callWorker('queryRaw', { start, end, filters });
+        if (!buffer || buffer.byteLength === 0) return [];
+
+        // Parse on main thread
+        return parseBuffer(buffer, this.recordSize, this.fieldOffsets);
     }
 
     async load(): Promise<any[]> {
