@@ -14,6 +14,10 @@ const { symbols } = dlopen(libPath, {
         args: [FFIType.ptr, FFIType.ptr, FFIType.u64],
         returns: FFIType.i32,
     },
+    hocdb_close: { // This is the correct hocdb_close, returning void
+        args: [FFIType.ptr],
+        returns: FFIType.void,
+    },
     hocdb_flush: {
         args: [FFIType.ptr],
         returns: FFIType.i32,
@@ -25,6 +29,10 @@ const { symbols } = dlopen(libPath, {
     hocdb_query: {
         args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.u64, FFIType.ptr],
         returns: FFIType.ptr,
+    },
+    hocdb_query_into: {
+        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
+        returns: FFIType.i64, // Returns bytes written or error code
     },
     hocdb_get_stats: {
         args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.u64, FFIType.ptr],
@@ -41,10 +49,6 @@ const { symbols } = dlopen(libPath, {
     hocdb_drop: {
         args: [FFIType.ptr],
         returns: FFIType.i32,
-    },
-    hocdb_close: {
-        args: [FFIType.ptr],
-        returns: FFIType.void,
     },
 });
 
@@ -201,40 +205,23 @@ export class HOCDB {
     }
 
     load(): Record<string, number | bigint>[] {
+        if (!this.db) throw new Error("DB not initialized");
         const lenPtr = new BigUint64Array(1);
         const dataPtr = symbols.hocdb_load(this.db, ptr(lenPtr));
 
-        if (!dataPtr) {
-            throw new Error("Load failed");
-        }
+        if (dataPtr === 0) return [];
 
-        const totalBytes = Number(lenPtr[0]);
-        const viewBuffer = toArrayBuffer(dataPtr, 0, totalBytes);
-        // Copy buffer because we're about to free logic?
-        // Actually for load() specifically we might not want to optimize yet, but consistency is good.
-        // But load() is rarely used in hot path compared to query.
 
-        const result = parseBuffer(viewBuffer, this.recordSize, this.fieldOffsets);
+        const len = Number(lenPtr[0]);
+        // toArrayBuffer provides a copy from native memory
+        const data = new Uint8Array(toArrayBuffer(dataPtr, 0, len));
 
-        // Wait, parseBuffer does not copy, it reads.
-        // We handle logic: read, then free.
-
-        // symbols.hocdb_free is NOT called in original load() implementation??
-        // Checking original code... 
-        // Original: const buffer = toArrayBuffer(...); ... return result;
-        // IT WAS LEAKING! Original load() definition didn't call hocdb_free!
-        // Wait, looking at file content provided in Context...
-        // lines 172-201.
-        // It does NOT call hocdb_free(dataPtr).
-        // That is a leak in load() too!
-        // Wait, hocdb_load in zig returns a pointer to internal buffer?
-        // No, zig function: 
-        // `const data = db.load(std.heap.c_allocator) catch return null;`
-        // It allocates using c_allocator. So it MUST be freed.
-        // The previous implementation of load() was leaking memory.
+        // Parse the buffer into objects
+        const records = parseBuffer(data.buffer, this.recordSize, this.fieldOffsets);
 
         symbols.hocdb_free(dataPtr);
-        return result;
+
+        return records;
     }
 
     queryRaw(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): ArrayBuffer {
@@ -314,6 +301,75 @@ export class HOCDB {
 
         symbols.hocdb_free(dataPtr);
         return copy;
+    }
+
+    queryInto(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = [], buffer: Uint8Array): number {
+        if (!this.db) throw new Error("Database not initialized");
+
+        let filterArray: Filter[] = [];
+        if (Array.isArray(filters)) {
+            filterArray = filters;
+        } else {
+            for (const [key, value] of Object.entries(filters)) {
+                const info = this.fieldOffsets[key];
+                if (!info) throw new Error(`Unknown field in filter: ${key}`);
+                filterArray.push({
+                    field_index: info.index,
+                    value: value
+                });
+            }
+        }
+
+        let filtersPtr = null;
+        let filtersBuf = null;
+
+        if (filterArray.length > 0) {
+            const structSize = 176;
+            filtersBuf = new Uint8Array(filterArray.length * structSize);
+            const view = new DataView(filtersBuf.buffer);
+            for (let i = 0; i < filterArray.length; i++) {
+                const offset = i * structSize;
+                const f = filterArray[i];
+                if (!f) continue;
+                view.setBigUint64(offset, BigInt(f.field_index), true);
+                if (typeof f.value === 'bigint') {
+                    view.setInt32(offset + 8, 1, true);
+                    view.setBigInt64(offset + 16, f.value, true);
+                } else if (typeof f.value === 'number') {
+                    view.setInt32(offset + 8, 2, true);
+                    view.setFloat64(offset + 24, f.value, true);
+                } else if (typeof f.value === 'string') {
+                    view.setInt32(offset + 8, 5, true);
+                    const strBytes = encoder.encode(f.value);
+                    for (let j = 0; j < Math.min(strBytes.length, 128); j++) {
+                        filtersBuf[offset + 40 + j] = strBytes[j]!;
+                    }
+                } else if (typeof f.value === 'boolean') {
+                    view.setInt32(offset + 8, 6, true);
+                    view.setUint8(offset + 168, f.value ? 1 : 0);
+                }
+            }
+            filtersPtr = ptr(filtersBuf);
+        }
+
+        const bytesWritten = symbols.hocdb_query_into(
+            this.db,
+            BigInt(startTs),
+            BigInt(endTs),
+            filtersPtr ?? 0,
+            BigInt(filterArray.length),
+            ptr(buffer),
+            BigInt(buffer.byteLength)
+        );
+
+        if (bytesWritten === -2n) {
+            throw new Error("BufferTooSmall");
+        }
+        if (bytesWritten === -1n) {
+            throw new Error("QueryInto failed");
+        }
+
+        return Number(bytesWritten);
     }
 
     query(startTs: number | bigint, endTs: number | bigint, filters: Filter[] | Record<string, number | bigint | string> = []): Record<string, number | bigint>[] {

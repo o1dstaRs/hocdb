@@ -130,6 +130,44 @@ export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
     return data.ptr;
 }
 
+export fn hocdb_query_into(
+    handle: ?*anyopaque,
+    start_ts: i64,
+    end_ts: i64,
+    filters: ?[*]const CFilter,
+    filters_len: usize,
+    buffer_ptr: [*]u8,
+    buffer_len: usize,
+) i64 {
+    if (handle) |h| {
+        var db = @as(*DB, @ptrCast(@alignCast(h)));
+        const f_len = filters_len;
+        var zig_filters: []hocdb.Filter = undefined;
+
+        if (f_len > 0 and filters != null) {
+            zig_filters = std.heap.c_allocator.alloc(hocdb.Filter, f_len) catch return -1;
+            defer std.heap.c_allocator.free(zig_filters);
+            
+            var i: usize = 0;
+            while (i < f_len) : (i += 1) {
+                const cf = filters.?[i];
+                zig_filters[i] = fromCFilter(cf);
+            }
+        } else {
+             zig_filters = std.heap.c_allocator.alloc(hocdb.Filter, 0) catch return -1;
+             defer std.heap.c_allocator.free(zig_filters);
+        }
+        
+        const buffer = buffer_ptr[0..buffer_len];
+        const bytes_written = db.queryInto(start_ts, end_ts, zig_filters, buffer) catch |err| {
+            if (err == error.BufferTooSmall) return -2;
+            return -1;
+        };
+        return @as(i64, @intCast(bytes_written));
+    }
+    return -1;
+}
+
 export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, filters_ptr: [*]const CFilter, filters_len: usize, out_len: *usize) ?[*]u8 {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
     db.flush() catch return null;
@@ -202,4 +240,18 @@ export fn hocdb_get_field_index(db_ptr: *anyopaque, field_name_z: [*:0]const u8)
         }
     }
     return -1;
+}
+
+fn fromCFilter(cf: CFilter) hocdb.Filter {
+    return .{
+        .field_index = cf.field_index,
+        .value = switch (cf.type) {
+            1 => .{ .i64 = cf.val_i64 },
+            2 => .{ .f64 = cf.val_f64 },
+            3 => .{ .u64 = cf.val_u64 },
+            5 => .{ .string = cf.val_string }, // This copies the array.
+            6 => .{ .bool = cf.val_bool },
+            else => .{ .i64 = 0 }, // Should not happen if pre-validated or we trust C caller
+        },
+    };
 }

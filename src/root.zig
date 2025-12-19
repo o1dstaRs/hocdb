@@ -742,6 +742,7 @@ pub const DynamicTimeSeriesDB = struct {
                 result_list.items.len += read_size;
                 const dest_slice = result_list.items[old_len..][0..read_size];
                 const len = try self.file.preadAll(dest_slice, physical_offset);
+
                 if (len != read_size) {
                     return error.UnexpectedEndOfFile;
                 }
@@ -808,6 +809,88 @@ pub const DynamicTimeSeriesDB = struct {
         }
 
         return result_list.toOwnedSlice(allocator);
+    }
+
+    pub fn queryInto(self: *Self, start_ts: i64, end_ts: i64, filters: []const Filter, buffer: []u8) !usize {
+        try self.flush();
+
+        const start_idx = try self.binarySearch(start_ts);
+        const end_idx = try self.binarySearch(end_ts);
+
+        if (start_idx >= end_idx) {
+            return 0;
+        }
+
+        var current_idx = start_idx;
+        var bytes_written: usize = 0;
+        
+        // For filtering with pre-allocated buffer
+        // We need a small scratch buffer if filters are present.
+        // If no filters, we read directly into buffer.
+        
+        // If filters are present, we need an allocator for temp buffer?
+        // To keep this "no-alloc", we should only support no-filter optimization or require a scratch buffer.
+        // For now, let's fall back to alloc if (filters.len > 0), OR just fail to keep it strict.
+        // But the main use case is bulk fetch without filters.
+        
+        
+        // If filters are present, we need an allocator for temp buffer?
+        // To keep this "no-alloc", we should only support no-filter optimization or require a scratch buffer.
+        // For now, let's fall back to alloc if (filters.len > 0), OR just fail to keep it strict.
+        // But the main use case is bulk fetch without filters.
+
+        while (current_idx < end_idx) {
+            // Determine contiguous count
+            var contiguous_count: u64 = 0;
+            var physical_offset: u64 = 0;
+
+            if (self.is_wrapped) {
+                const capacity = self.count();
+                const start_rec_index = self.countRecordsFromOffset(self.write_cursor);
+                physical_offset = self.getPhysicalOffset(current_idx);
+                
+                const records_until_wrap = capacity - ((start_rec_index + current_idx) % capacity);
+                const bytes_until_eof = self.max_file_size - physical_offset;
+                const records_physically_contiguous = bytes_until_eof / self.record_size;
+
+                contiguous_count = @min(end_idx - current_idx, records_until_wrap);
+                contiguous_count = @min(contiguous_count, records_physically_contiguous);
+            } else {
+                physical_offset = self.getPhysicalOffset(current_idx);
+                contiguous_count = end_idx - current_idx;
+            }
+
+            const MAX_CHUNK_RECORDS = 1024;
+            contiguous_count = @min(contiguous_count, MAX_CHUNK_RECORDS);
+
+            if (contiguous_count == 0) break;
+
+            const read_size = contiguous_count * self.record_size;
+
+            if (filters.len == 0) {
+                if (bytes_written + read_size > buffer.len) return error.BufferTooSmall;
+                
+                const dest_slice = buffer[bytes_written .. bytes_written + read_size];
+                const len = try self.file.preadAll(dest_slice, physical_offset);
+                if (len != read_size) return error.UnexpectedEndOfFile;
+                
+                bytes_written += read_size;
+            } else {
+                // Filtering Logic with Stack Buffer (limited chunk size)
+                // If read_size > 4096, we can't use stack buffer.
+                // We limited chunk to 1024 records. record_size must be small enough.
+                // If record_size * 1024 > 4096 (e.g. record is > 4 bytes), this fails.
+                // Safe approach: Read record-by-record for filtering if strictly no-alloc.
+                
+                // For this optimization, we primarily care about the NO-FILTER path.
+                // So skipping complex implementation for filters in queryInto for now.
+                return error.FiltersNotSupportedInQueryInto; 
+            }
+            
+            current_idx += contiguous_count;
+        }
+
+        return bytes_written;
     }
 
     fn getFieldOffset(self: *Self, field_index: usize) !usize {
