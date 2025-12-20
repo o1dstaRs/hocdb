@@ -184,6 +184,11 @@ pub fn build(b: *std.Build) void {
     bench_step.dependOn(&run_bench.step);
 
     // --- Node.js Bindings ---
+    // Sync Version Script
+    const sync_version_cmd = b.addSystemCommand(&.{ "bash", "scripts/update_bindings_version.sh" });
+    const sync_version_step = b.step("sync-version", "Sync version numbers");
+    sync_version_step.dependOn(&sync_version_cmd.step);
+
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "hocdb",
@@ -204,6 +209,7 @@ pub fn build(b: *std.Build) void {
     const lib_install = b.addInstallArtifact(lib, .{});
 
     const lib_step = b.step("bindings", "Build Node.js bindings");
+    lib_step.dependOn(sync_version_step); // Ensure version is synced before building
     lib_step.dependOn(&lib_install.step);
 
     // --- C/C++ Bindings ---
@@ -229,6 +235,7 @@ pub fn build(b: *std.Build) void {
 
     // Main C bindings step
     const c_bindings_step = b.step("c-bindings", "Build C/C++ bindings");
+    c_bindings_step.dependOn(sync_version_step);
     c_bindings_step.dependOn(&c_lib_install.step);
     c_bindings_step.dependOn(&install_headers_step.step);
     c_bindings_step.dependOn(&install_cpp_headers_step.step);
