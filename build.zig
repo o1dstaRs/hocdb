@@ -201,7 +201,7 @@ pub fn build(b: *std.Build) void {
 
     // Allow undefined symbols (resolved by Node.js at runtime)
     lib.linker_allow_shlib_undefined = true;
-    lib.linkLibC();
+    lib.root_module.link_libc = true;
 
     // Add hocdb module dependency
     lib.root_module.addImport("hocdb", mod);
@@ -224,7 +224,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    c_lib.linkLibC();
+    c_lib.root_module.link_libc = true;
     c_lib.root_module.addImport("hocdb", mod);
 
     const c_lib_install = b.addInstallArtifact(c_lib, .{});
