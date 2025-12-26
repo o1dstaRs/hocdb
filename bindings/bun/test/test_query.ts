@@ -44,6 +44,13 @@ try {
     if (Number(res[1].timestamp) !== 300) throw new Error(`Expected 300, got ${res[1].timestamp}`);
     if (Number(res[2].timestamp) !== 400) throw new Error(`Expected 400, got ${res[2].timestamp}`);
 
+    console.log("Querying empty range (600 to 700)...");
+    const emptyRes = db.query(600n, 700n);
+    console.log(`Empty query result count: ${emptyRes.length}`);
+    if (emptyRes.length !== 0) {
+        throw new Error(`Expected 0 records for empty range, got ${emptyRes.length}`);
+    }
+
     console.log("✅ Bun Query Test Passed!");
 } finally {
     if (db) {

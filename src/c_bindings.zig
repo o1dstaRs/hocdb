@@ -127,6 +127,13 @@ export fn hocdb_load(db_ptr: *anyopaque, out_len: *usize) ?[*]u8 {
     db.flush() catch return null;
     const data = db.load(std.heap.c_allocator) catch return null;
     out_len.* = data.len;
+    if (data.len == 0) {
+        // If data is empty, we must ensure we don't return a pointer that might be unsafe to free later
+        // or that TS might misinterpret.
+        // We free it now and return null.
+        std.heap.c_allocator.free(data);
+        return null;
+    }
     return data.ptr;
 }
 
@@ -147,17 +154,17 @@ export fn hocdb_query_into(
         if (f_len > 0 and filters != null) {
             zig_filters = std.heap.c_allocator.alloc(hocdb.Filter, f_len) catch return -1;
             defer std.heap.c_allocator.free(zig_filters);
-            
+
             var i: usize = 0;
             while (i < f_len) : (i += 1) {
                 const cf = filters.?[i];
                 zig_filters[i] = fromCFilter(cf);
             }
         } else {
-             zig_filters = std.heap.c_allocator.alloc(hocdb.Filter, 0) catch return -1;
-             defer std.heap.c_allocator.free(zig_filters);
+            zig_filters = std.heap.c_allocator.alloc(hocdb.Filter, 0) catch return -1;
+            defer std.heap.c_allocator.free(zig_filters);
         }
-        
+
         const buffer = buffer_ptr[0..buffer_len];
         const bytes_written = db.queryInto(start_ts, end_ts, zig_filters, buffer) catch |err| {
             if (err == error.BufferTooSmall) return -2;
@@ -193,6 +200,10 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, filters_pt
 
     const data = db.query(start_ts, end_ts, filters, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
+    if (data.len == 0) {
+        std.heap.c_allocator.free(data);
+        return null;
+    }
     return data.ptr;
 }
 
