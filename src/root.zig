@@ -79,11 +79,13 @@ pub const Schema = struct {
     }
 };
 
-// Compatibility shim for std.fs.File
-const File = if (@hasDecl(std.fs, "File")) std.fs.File else blk: {
-    const Dir = @TypeOf(std.fs.cwd());
-    break :blk @typeInfo(@typeInfo(@TypeOf(Dir.createFile)).Fn.return_type.?).ErrorUnion.payload;
-};
+// Compatibility Shim for Zig std.fs overhaul (Master branch vs Stable)
+const Dir = if (@hasDecl(std.fs, "Dir")) std.fs.Dir else std.Io.Dir;
+const File = if (@hasDecl(std.fs, "File")) std.fs.File else std.Io.File;
+fn cwd() Dir {
+    if (@hasDecl(std.fs, "cwd")) return std.fs.cwd();
+    return std.Io.Dir.cwd();
+}
 
 pub const DynamicTimeSeriesDB = struct {
     const Self = @This();
@@ -207,7 +209,7 @@ pub const DynamicTimeSeriesDB = struct {
         const aligned_capacity = (data_capacity / record_size) * record_size;
         const effective_max_size = HEADER_SIZE + aligned_capacity;
 
-        var dir = try std.fs.cwd().makeOpenPath(dir_path, .{});
+        var dir = try cwd().makeOpenPath(dir_path, .{});
         defer dir.close();
 
         const filename = try std.fmt.allocPrint(allocator, "{s}.bin", .{ticker});
@@ -219,11 +221,11 @@ pub const DynamicTimeSeriesDB = struct {
         var file: File = undefined;
         var retry_count: usize = 0;
         while (retry_count < 3) : (retry_count += 1) {
-            if (std.fs.cwd().openFile(full_path, .{ .mode = .read_write })) |f| {
+            if (cwd().openFile(full_path, .{ .mode = .read_write })) |f| {
                 file = f;
             } else |err| {
                 if (err == error.FileNotFound) {
-                    file = try std.fs.cwd().createFile(full_path, .{
+                    file = try cwd().createFile(full_path, .{
                         .read = true,
                         .truncate = false,
                     });
@@ -480,7 +482,7 @@ pub const DynamicTimeSeriesDB = struct {
         self.file.close();
 
         // Delete the file
-        try std.fs.cwd().deleteFile(self.full_path);
+        try cwd().deleteFile(self.full_path);
 
         // Free resources (similar to deinit but we don't close file again)
         for (self.fields) |f| self.allocator.free(f.name);
