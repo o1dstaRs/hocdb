@@ -3,7 +3,7 @@ import { rmSync, existsSync } from "fs";
 
 import { join } from "path";
 
-const DATA_DIR = join(import.meta.dir, "..", "..", "..", "b_bun_test_agg");
+const DATA_DIR = join(import.meta.dir, "..", "..", "..", "b_bun_test_agg_data");
 const TICKER = "TEST_BUN_AGG";
 
 if (existsSync(DATA_DIR)) {
@@ -15,7 +15,7 @@ const schema = [
     { name: "value", type: "f64" as const }
 ];
 
-const db = new HOCDB(TICKER, TEST_DIR, schema, {
+const db = new HOCDB(TICKER, DATA_DIR, schema, {
     max_file_size: 1024 * 1024,
     flush_on_write: true
 });
@@ -34,7 +34,7 @@ if (latest.value !== 30.0 || latest.timestamp !== 300n) {
 }
 
 console.log("Testing getStats...");
-const stats = db.getStats(0n, 400n, 1);
+const stats = db.getStats(0n, 400n, 1, { percentiles: true });
 console.log("Stats:", stats);
 
 if (stats.count !== 3n) throw new Error(`Count mismatch: expected 3, got ${stats.count}`);
@@ -42,6 +42,13 @@ if (stats.min !== 10.0) throw new Error(`Min mismatch: expected 10.0, got ${stat
 if (stats.max !== 30.0) throw new Error(`Max mismatch: expected 30.0, got ${stats.max}`);
 if (stats.sum !== 60.0) throw new Error(`Sum mismatch: expected 60.0, got ${stats.sum}`);
 if (stats.mean !== 20.0) throw new Error(`Mean mismatch: expected 20.0, got ${stats.mean}`);
+if (stats.p50 !== 20.0) throw new Error(`p50 mismatch: expected 20.0, got ${stats.p50}`);
+if (stats.p90 !== 30.0) throw new Error(`p90 mismatch: expected 30.0, got ${stats.p90}`);
+if (stats.p95 !== 30.0) throw new Error(`p95 mismatch: expected 30.0, got ${stats.p95}`);
+if (stats.p99 !== 30.0) throw new Error(`p99 mismatch: expected 30.0, got ${stats.p99}`);
 
 db.close();
+if (existsSync(DATA_DIR)) {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+}
 console.log("Bun Aggregation Test Passed!");

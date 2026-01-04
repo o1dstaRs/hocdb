@@ -1,9 +1,9 @@
 #ifndef HOCDB_H
 #define HOCDB_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,12 +18,12 @@ extern "C" {
 
 // Structure for schema field definition
 typedef struct {
-    const char* name;
-    int type;
+  const char *name;
+  int type;
 } CField;
 
 // Database handle
-typedef void* HOCDBHandle;
+typedef void *HOCDBHandle;
 
 /**
  * Initialize the database with dynamic schema and config
@@ -32,12 +32,18 @@ typedef void* HOCDBHandle;
  * @param schema Array of CField structs defining the schema
  * @param schema_len Number of fields in the schema
  * @param max_file_size Maximum file size (0 for default)
- * @param overwrite_on_full Whether to overwrite when full (1 for true, 0 for false)
- * @param flush_on_write Whether to flush on every write (1 for true, 0 for false)
- * @param auto_increment Whether to auto-increment timestamp (1 for true, 0 for false)
+ * @param overwrite_on_full Whether to overwrite when full (1 for true, 0 for
+ * false)
+ * @param flush_on_write Whether to flush on every write (1 for true, 0 for
+ * false)
+ * @param auto_increment Whether to auto-increment timestamp (1 for true, 0 for
+ * false)
  * @return Database handle or NULL on failure
  */
-HOCDBHandle hocdb_init(const char* ticker, const char* path, const CField* schema, size_t schema_len, int64_t max_file_size, int overwrite_on_full, int flush_on_write, int auto_increment);
+HOCDBHandle hocdb_init(const char *ticker, const char *path,
+                       const CField *schema, size_t schema_len,
+                       int64_t max_file_size, int overwrite_on_full,
+                       int flush_on_write, int auto_increment);
 
 /**
  * Append a raw record to the database
@@ -46,7 +52,7 @@ HOCDBHandle hocdb_init(const char* ticker, const char* path, const CField* schem
  * @param len Length of data in bytes
  * @return 0 on success, non-zero on failure
  */
-int hocdb_append(HOCDBHandle handle, const void* data, size_t len);
+int hocdb_append(HOCDBHandle handle, const void *data, size_t len);
 
 /**
  * Flush the database (force write to disk)
@@ -59,14 +65,14 @@ int hocdb_flush(HOCDBHandle handle);
  * Load all records into memory with zero-copy
  * @param handle Database handle
  * @param out_len Output parameter to store the number of bytes loaded
- * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
- *         Returns NULL on failure
- * 
- * IMPORTANT: The returned pointer is valid only until the next operation on the database
- *            or until the database is closed. The caller is responsible for calling
- *            hocdb_free() to free the memory.
+ * @return Pointer to raw data bytes (allocated with c_allocator, caller must
+ * free with hocdb_free) Returns NULL on failure
+ *
+ * IMPORTANT: The returned pointer is valid only until the next operation on the
+ * database or until the database is closed. The caller is responsible for
+ * calling hocdb_free() to free the memory.
  */
-void* hocdb_load(HOCDBHandle handle, size_t* out_len);
+void *hocdb_load(HOCDBHandle handle, size_t *out_len);
 
 /**
  * Query records in a time range
@@ -74,17 +80,17 @@ void* hocdb_load(HOCDBHandle handle, size_t* out_len);
  * @param start_ts Start timestamp (inclusive)
  * @param end_ts End timestamp (exclusive)
  * @param out_len Output parameter to store the number of bytes loaded
- * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
- *         Returns NULL on failure
+ * @return Pointer to raw data bytes (allocated with c_allocator, caller must
+ * free with hocdb_free) Returns NULL on failure
  */
 typedef struct {
-    size_t field_index;
-    int type;
-    int64_t val_i64;
-    double val_f64;
-    uint64_t val_u64;
-    char val_string[128];
-    bool val_bool;
+  size_t field_index;
+  int type;
+  int64_t val_i64;
+  double val_f64;
+  uint64_t val_u64;
+  char val_string[128];
+  bool val_bool;
 } HOCDBFilter;
 
 /**
@@ -95,27 +101,37 @@ typedef struct {
  * @param filters Array of HOCDBFilter structs (can be NULL)
  * @param filters_len Number of filters
  * @param out_len Output parameter to store the number of bytes loaded
- * @return Pointer to raw data bytes (allocated with c_allocator, caller must free with hocdb_free)
- *         Returns NULL on failure
+ * @return Pointer to raw data bytes (allocated with c_allocator, caller must
+ * free with hocdb_free) Returns NULL on failure
  */
-void* hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, const HOCDBFilter* filters, size_t filters_len, size_t* out_len);
+void *hocdb_query(HOCDBHandle handle, int64_t start_ts, int64_t end_ts,
+                  const HOCDBFilter *filters, size_t filters_len,
+                  size_t *out_len);
 
 typedef struct {
-    double min;
-    double max;
-    double sum;
-    uint64_t count;
-    double mean;
+  double min;
+  double max;
+  double sum;
+  uint64_t count;
+  double mean;
+  double p50;
+  double p90;
+  double p95;
+  double p99;
 } HOCDBStats;
 
-int hocdb_get_stats(HOCDBHandle handle, int64_t start_ts, int64_t end_ts, size_t field_index, HOCDBStats* out_stats);
-int hocdb_get_latest(HOCDBHandle handle, size_t field_index, double* out_val, int64_t* out_ts);
+#define HOCDB_STATS_PERCENTILES 1
+
+int hocdb_get_stats(HOCDBHandle handle, int64_t start_ts, int64_t end_ts,
+                    size_t field_index, uint32_t flags, HOCDBStats *out_stats);
+int hocdb_get_latest(HOCDBHandle handle, size_t field_index, double *out_val,
+                     int64_t *out_ts);
 
 /**
  * Free memory allocated by hocdb_load
  * @param ptr Pointer returned by hocdb_load
  */
-void hocdb_free(void* ptr);
+void hocdb_free(void *ptr);
 
 /**
  * Get the index of a field by name
@@ -123,7 +139,7 @@ void hocdb_free(void* ptr);
  * @param field_name Field name as null-terminated string
  * @return Field index or -1 if not found
  */
-int64_t hocdb_get_field_index(HOCDBHandle handle, const char* field_name);
+int64_t hocdb_get_field_index(HOCDBHandle handle, const char *field_name);
 
 /**
  * Close the database and delete the data file

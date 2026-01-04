@@ -36,7 +36,7 @@ test "Aggregation API (getStats, getLatest)" {
         const latest = db.dynamic_db.getLatest(1); // value field index = 1
         try std.testing.expectError(error.EmptyDB, latest);
 
-        const stats = try db.dynamic_db.getStats(0, 1000, 1);
+        const stats = try db.dynamic_db.getStats(0, 1000, 1, false);
         try std.testing.expectEqual(@as(u64, 0), stats.count);
     }
 
@@ -61,7 +61,7 @@ test "Aggregation API (getStats, getLatest)" {
 
     // 4. getStats (Full Range)
     {
-        const stats = try db.dynamic_db.getStats(0, 600, 1);
+        const stats = try db.dynamic_db.getStats(0, 600, 1, false);
         try std.testing.expectEqual(@as(u64, 5), stats.count);
         try std.testing.expectEqual(10.0, stats.min);
         try std.testing.expectEqual(50.0, stats.max);
@@ -72,7 +72,7 @@ test "Aggregation API (getStats, getLatest)" {
     // 5. getStats (Partial Range)
     {
         // 200, 300, 400
-        const stats = try db.dynamic_db.getStats(200, 450, 1);
+        const stats = try db.dynamic_db.getStats(200, 450, 1, false);
         try std.testing.expectEqual(@as(u64, 3), stats.count);
         try std.testing.expectEqual(20.0, stats.min);
         try std.testing.expectEqual(40.0, stats.max);
@@ -131,18 +131,24 @@ test "Aggregation API (Wrapped Buffer)" {
 
     // 2. getStats (Full Range)
     {
-        const stats = try db.dynamic_db.getStats(0, 1000, 1);
+        const stats = try db.dynamic_db.getStats(0, 1000, 1, true);
         try std.testing.expectEqual(@as(u64, 5), stats.count);
         try std.testing.expectEqual(30.0, stats.min);
         try std.testing.expectEqual(70.0, stats.max);
         try std.testing.expectEqual(250.0, stats.sum);
         try std.testing.expectEqual(50.0, stats.mean);
-    }
+        // p50 (median) of 30,40,50,60,70 is 50
+        try std.testing.expectEqual(50.0, stats.p50);
+        // p90 index = 5*0.9 = 4.5 -> 4. Value = 70.
+        try std.testing.expectEqual(70.0, stats.p90);
+        try std.testing.expectEqual(70.0, stats.p95);
+        try std.testing.expectEqual(70.0, stats.p99);
+    } // 60-80?:
 
     // 3. getStats (Cross-Wrap Range)
     // Query 400 to 650 -> Should get 400, 500, 600
     {
-        const stats = try db.dynamic_db.getStats(400, 650, 1);
+        const stats = try db.dynamic_db.getStats(400, 650, 1, false);
         try std.testing.expectEqual(@as(u64, 3), stats.count);
         try std.testing.expectEqual(40.0, stats.min);
         try std.testing.expectEqual(60.0, stats.max);

@@ -78,7 +78,7 @@ func Example() {
 	fmt.Printf("Latest price: %.1f at timestamp %d\n", latest.Value, latest.Timestamp)
 
 	// Get stats for price field
-	stats, err := db.GetStats(1620000000, 1620000002, 1)
+	stats, err := db.GetStats(1620000000, 1620000002, 1, false)
 	if err != nil {
 		panic(err)
 	}

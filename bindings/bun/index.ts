@@ -35,7 +35,7 @@ const { symbols } = dlopen(libPath, {
         returns: FFIType.i64, // Returns bytes written or error code
     },
     hocdb_get_stats: {
-        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.u64, FFIType.ptr],
+        args: [FFIType.ptr, FFIType.i64, FFIType.i64, FFIType.u64, FFIType.u32, FFIType.ptr],
         returns: FFIType.i32,
     },
     hocdb_get_latest: {
@@ -377,7 +377,7 @@ export class HOCDB {
         return parseBuffer(buffer, this.recordSize, this.fieldOffsets);
     }
 
-    getStats(start: bigint, end: bigint, fieldIndex: number | string): { min: number, max: number, sum: number, count: bigint, mean: number } {
+    getStats(start: bigint, end: bigint, fieldIndex: number | string, options?: { percentiles?: boolean }): { min: number, max: number, sum: number, count: bigint, mean: number, p50: number, p90: number, p95: number, p99: number } {
         let idx: bigint;
         if (typeof fieldIndex === 'string') {
             const field = this.fieldOffsets[fieldIndex];
@@ -389,8 +389,9 @@ export class HOCDB {
             idx = BigInt(Math.floor(fieldIndex));
         }
 
-        const statsBuffer = new Uint8Array(40);
-        const res = symbols.hocdb_get_stats(this.db, start, end, idx, ptr(statsBuffer));
+        const statsBuffer = new Uint8Array(72); // Size of HOCDBStats
+        const flags = options?.percentiles ? 1 : 0;
+        const res = symbols.hocdb_get_stats(this.db, start, end, idx, flags, ptr(statsBuffer));
 
         if (res !== 0) {
             throw new Error("getStats failed");
@@ -402,7 +403,11 @@ export class HOCDB {
             max: view.getFloat64(8, true),
             sum: view.getFloat64(16, true),
             count: view.getBigUint64(24, true),
-            mean: view.getFloat64(32, true)
+            mean: view.getFloat64(32, true),
+            p50: view.getFloat64(40, true),
+            p90: view.getFloat64(48, true),
+            p95: view.getFloat64(56, true),
+            p99: view.getFloat64(64, true)
         };
     }
 

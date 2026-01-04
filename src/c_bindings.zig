@@ -207,9 +207,10 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, filters_pt
     return data.ptr;
 }
 
-export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, out_stats: *hocdb.Stats) c_int {
+export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, flags: u32, out_stats: *hocdb.Stats) c_int {
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    const stats = db.getStats(start_ts, end_ts, field_index) catch return -1;
+    const compute_percentiles = (flags & 1) != 0;
+    const stats = db.getStats(start_ts, end_ts, field_index, compute_percentiles) catch return -1;
     out_stats.* = stats;
     return 0;
 }

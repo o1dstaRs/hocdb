@@ -94,7 +94,7 @@ func TestHOCDB(t *testing.T) {
 	}
 
 	// Test GetStats
-	stats, err := db.GetStats(1620000000, 1620000002, 1) // Get stats for price field
+	stats, err := db.GetStats(1620000000, 1620000002, 1, false) // Get stats for price field
 	if err != nil {
 		t.Fatalf("Failed to get stats: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestHOCDB(t *testing.T) {
 	}
 
 	// Test GetStatsByName (String API)
-	statsStr, err := db.GetStatsByName(1620000000, 1620000002, "price")
+	statsStr, err := db.GetStatsByName(1620000000, 1620000002, "price", false)
 	if err != nil {
 		t.Fatalf("Failed to get stats by name: %v", err)
 	}
@@ -343,7 +343,7 @@ func BenchmarkGetStats(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db.GetStats(0, 100000, 1)
+		db.GetStats(0, 100000, 1, false)
 	}
 }
 

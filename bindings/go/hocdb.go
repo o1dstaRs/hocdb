@@ -94,6 +94,10 @@ type Stats struct {
 	Sum   float64
 	Count uint64
 	Mean  float64
+	P50   float64
+	P90   float64
+	P95   float64
+	P99   float64
 }
 
 // Latest represents the latest value and timestamp for a field
@@ -363,9 +367,14 @@ func min(a, b int) int {
 }
 
 // GetStats returns statistics for a specific field within a time range
-func (db *DB) GetStats(startTs, endTs int64, fieldIndex int) (*Stats, error) {
+func (db *DB) GetStats(startTs, endTs int64, fieldIndex int, computePercentiles bool) (*Stats, error) {
 	if db.handle == nil {
 		return nil, errors.New("database not initialized")
+	}
+
+	flags := C.uint32_t(0)
+	if computePercentiles {
+		flags = 1
 	}
 
 	var outStats C.HOCDBStats
@@ -374,6 +383,7 @@ func (db *DB) GetStats(startTs, endTs int64, fieldIndex int) (*Stats, error) {
 		C.int64_t(startTs),
 		C.int64_t(endTs),
 		C.size_t(fieldIndex),
+		flags,
 		&outStats,
 	)
 
@@ -387,6 +397,10 @@ func (db *DB) GetStats(startTs, endTs int64, fieldIndex int) (*Stats, error) {
 		Sum:   float64(outStats.sum),
 		Count: uint64(outStats.count),
 		Mean:  float64(outStats.mean),
+		P50:   float64(outStats.p50),
+		P90:   float64(outStats.p90),
+		P95:   float64(outStats.p95),
+		P99:   float64(outStats.p99),
 	}
 
 	return stats, nil
@@ -421,12 +435,12 @@ func (db *DB) GetLatest(fieldIndex int) (*Latest, error) {
 }
 
 // GetStatsByName returns statistics for a specific field by name within a time range
-func (db *DB) GetStatsByName(startTs, endTs int64, fieldName string) (*Stats, error) {
+func (db *DB) GetStatsByName(startTs, endTs int64, fieldName string, computePercentiles bool) (*Stats, error) {
 	idx, ok := db.fieldMap[fieldName]
 	if !ok {
 		return nil, fmt.Errorf("unknown field: %s", fieldName)
 	}
-	return db.GetStats(startTs, endTs, idx)
+	return db.GetStats(startTs, endTs, idx, computePercentiles)
 }
 
 // GetLatestByName returns the latest value and timestamp for a specific field by name

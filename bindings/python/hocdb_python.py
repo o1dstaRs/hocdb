@@ -205,6 +205,7 @@ class HOCDB:
             ctypes.c_longlong,        # start_ts
             ctypes.c_longlong,        # end_ts
             ctypes.c_size_t,          # field_index
+            ctypes.c_uint32,          # flags
             ctypes.c_void_p           # out_stats
         ]
         self.lib.hocdb_get_stats.restype = ctypes.c_int
@@ -432,7 +433,7 @@ class HOCDB:
             return self._field_map[field][0]
         raise ValueError(f"Field must be int or str, got {type(field)}")
 
-    def get_stats(self, start_ts: int, end_ts: int, field: Union[int, str]) -> dict:
+    def get_stats(self, start_ts: int, end_ts: int, field: Union[int, str], compute_percentiles: bool = False) -> dict:
         """
         Get statistics for a specific field within a time range.
         
@@ -440,6 +441,7 @@ class HOCDB:
             start_ts: Start timestamp
             end_ts: End timestamp
             field: Field index (int) or name (str)
+            compute_percentiles: Whether to compute percentiles (slower due to sorting)
         """
         if not self.handle:
             raise RuntimeError("Database not initialized")
@@ -453,10 +455,15 @@ class HOCDB:
                 ("sum", ctypes.c_double),
                 ("count", ctypes.c_uint64),
                 ("mean", ctypes.c_double),
+                ("p50", ctypes.c_double),
+                ("p90", ctypes.c_double),
+                ("p95", ctypes.c_double),
+                ("p99", ctypes.c_double),
             ]
 
         stats = HOCDBStats()
-        res = self.lib.hocdb_get_stats(self.handle, start_ts, end_ts, field_index, ctypes.byref(stats))
+        flags = 1 if compute_percentiles else 0
+        res = self.lib.hocdb_get_stats(self.handle, start_ts, end_ts, field_index, flags, ctypes.byref(stats))
         if res != 0:
             raise RuntimeError("get_stats failed")
         
@@ -465,7 +472,11 @@ class HOCDB:
             "max": stats.max,
             "sum": stats.sum,
             "count": stats.count,
-            "mean": stats.mean
+            "mean": stats.mean,
+            "p50": stats.p50,
+            "p90": stats.p90,
+            "p95": stats.p95,
+            "p99": stats.p99
         }
 
     def get_latest(self, field: Union[int, str]) -> dict:

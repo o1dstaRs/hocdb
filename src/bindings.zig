@@ -382,29 +382,37 @@ fn dbQuery(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     return result;
 }
 
-// dbGetStats(db: external, start: i64, end: i64, field_index: u32): Object
+// dbGetStats(db: external, start: i64, end: i64, field_index: u32, compute_percentiles?: boolean): Object
 fn dbGetStats(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
-    const args = getArgs(env, info, 4) catch return throwError(env, "Expected 4 arguments");
+    var argc: usize = 5;
+    var argv: [5]napi_value = undefined;
+    _ = napi_get_cb_info(env, info, &argc, &argv, null, null);
+    if (argc < 4) return throwError(env, "Expected at least 4 arguments");
 
     var db_ptr: ?*anyopaque = null;
-    _ = napi_get_value_external(env, args[0], &db_ptr);
+    _ = napi_get_value_external(env, argv[0], &db_ptr);
     const db = @as(*DB, @ptrCast(@alignCast(db_ptr.?)));
 
     var start: i64 = 0;
     var lossless: bool = true;
-    if (napi_get_value_bigint_int64(env, args[1], &start, &lossless) != .ok) {
-        if (napi_get_value_int64(env, args[1], &start) != .ok) return throwError(env, "Invalid start timestamp");
+    if (napi_get_value_bigint_int64(env, argv[1], &start, &lossless) != .ok) {
+        if (napi_get_value_int64(env, argv[1], &start) != .ok) return throwError(env, "Invalid start timestamp");
     }
 
     var end: i64 = 0;
-    if (napi_get_value_bigint_int64(env, args[2], &end, &lossless) != .ok) {
-        if (napi_get_value_int64(env, args[2], &end) != .ok) return throwError(env, "Invalid end timestamp");
+    if (napi_get_value_bigint_int64(env, argv[2], &end, &lossless) != .ok) {
+        if (napi_get_value_int64(env, argv[2], &end) != .ok) return throwError(env, "Invalid end timestamp");
     }
 
     var field_index: i64 = 0;
-    if (napi_get_value_int64(env, args[3], &field_index) != .ok) return throwError(env, "Invalid field index");
+    if (napi_get_value_int64(env, argv[3], &field_index) != .ok) return throwError(env, "Invalid field index");
 
-    const stats = db.getStats(start, end, @intCast(field_index)) catch |err| {
+    var compute_percentiles: bool = false;
+    if (argc >= 5) {
+        _ = napi_get_value_bool(env, argv[4], &compute_percentiles);
+    }
+
+    const stats = db.getStats(start, end, @intCast(field_index), compute_percentiles) catch |err| {
         return throwError(env, @errorName(err));
     };
 
@@ -423,7 +431,28 @@ fn dbGetStats(env: napi_env, info: napi_callback_info) callconv(.c) napi_value {
     _ = napi_create_bigint_uint64(env, @intCast(stats.count), &val);
     _ = napi_set_named_property(env, result, "count", val);
 
+    if (compute_percentiles) {
+        _ = napi_create_double(env, stats.p50, &val);
+        _ = napi_set_named_property(env, result, "p50", val);
+        _ = napi_create_double(env, stats.p90, &val);
+        _ = napi_set_named_property(env, result, "p90", val);
+        _ = napi_create_double(env, stats.p95, &val);
+        _ = napi_set_named_property(env, result, "p95", val);
+        _ = napi_create_double(env, stats.p99, &val);
+        _ = napi_set_named_property(env, result, "p99", val);
+    }
+
     return result;
+}
+
+// ... skipped dbGetLatest which is unchanged ...
+
+export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, flags: u32, out_stats: *hocdb.Stats) c_int {
+    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
+    const compute_percentiles = (flags & 1) != 0;
+    const stats = db.getStats(start_ts, end_ts, field_index, compute_percentiles) catch return -1;
+    out_stats.* = stats;
+    return 0;
 }
 
 // dbGetLatest(db: external, field_index: u32): Object
@@ -617,13 +646,6 @@ export fn hocdb_query(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, out_len: *
     const data = db.query(start_ts, end_ts, &[_]hocdb.Filter{}, std.heap.c_allocator) catch return null;
     out_len.* = data.len;
     return data.ptr;
-}
-
-export fn hocdb_get_stats(db_ptr: *anyopaque, start_ts: i64, end_ts: i64, field_index: usize, out_stats: *hocdb.Stats) c_int {
-    const db = @as(*DB, @ptrCast(@alignCast(db_ptr)));
-    const stats = db.getStats(start_ts, end_ts, field_index) catch return -1;
-    out_stats.* = stats;
-    return 0;
 }
 
 export fn hocdb_get_latest(db_ptr: *anyopaque, field_index: usize, out_val: *f64, out_ts: *i64) c_int {
