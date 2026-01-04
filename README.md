@@ -20,7 +20,6 @@
 > **The World's Most Performant Time-Series Database.**
 > *Built for speed. Built for scale. Built for victory.*
 
-
 HOCDB is a high-performance, embedded time-series database library written in Zig. It provides strict schema enforcement, fixed-size records for O(1) access, and highly optimized SIMD aggregations. It is designed to be embedded directly into applications (like SQLite or LevelDB) rather than running as a standalone server.
 
 This library is built for high-frequency trading and other latency-sensitive time-series workloads.
@@ -78,53 +77,326 @@ zig build bench -Doptimize=ReleaseFast
 
 *Benchmarks run on Apple Silicon (M-series).*
 
-## Bindings
+## Installation as Zig Package
 
-HOCDB is written in Zig but provides native bindings for other languages.
+You can use HOCDB as a standard Zig library in your own project.
 
-### C / C++
+1. **Add Dependency**:
+   ```bash
+   zig fetch --save https://github.com/o1dstaRs/hocdb/archive/refs/heads/main.tar.gz
+   # OR for local development:
+   # zig fetch --save ../path/to/hocdb
+   ```
+
+2. **Configure `build.zig`**:
+   ```zig
+   pub fn build(b: *std.Build) void {
+       const target = b.standardTargetOptions(.{});
+       const optimize = b.standardOptimizeOption(.{});
+
+       const hocdb_dep = b.dependency("hocdb", .{
+           .target = target,
+           .optimize = optimize,
+       });
+
+       const exe = b.addExecutable(.{
+           .name = "my-app",
+           .root_source_file = b.path("src/main.zig"),
+           .target = target,
+           .optimize = optimize,
+       });
+
+       exe.root_module.addImport("hocdb", hocdb_dep.module("hocdb"));
+       b.installArtifact(exe);
+   }
+   ```
+
+## Usage Examples
+
+### ⚡ Zig
+Usage as a library (imported via `build.zig`).
+
+```zig
+const std = @import("std");
+const hocdb = @import("hocdb");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    // Define Schema
+    var fields = std.ArrayList(hocdb.FieldInfo).init(allocator);
+    defer fields.deinit();
+    try fields.append(.{ .name = "timestamp", .type = .i64 });
+    try fields.append(.{ .name = "price", .type = .f64 });
+    try fields.append(.{ .name = "active", .type = .bool });
+    try fields.append(.{ .name = "ticker", .type = .string });
+
+    const schema = hocdb.Schema{ .fields = fields.items };
+
+    // Initialize DB
+    var db = try hocdb.DynamicTimeSeriesDB.init("BTC_USD", "data", allocator, schema, .{});
+    // defer db.deinit(); // Use drop() to delete, or deinit() to just close
+
+    // Append Data
+    var ticker_buf: [128]u8 = undefined;
+    @memset(&ticker_buf, 0);
+    std.mem.copyForwards(u8, &ticker_buf, "BTC");
+
+    try db.append(.{
+        .timestamp = 1620000000,
+        .price = 50000.0,
+        .active = true,
+        .ticker = ticker_buf,
+    });
+    try db.flush();
+
+    // Query with Filter
+    var filters = std.ArrayList(hocdb.Filter).init(allocator);
+    defer filters.deinit();
+    
+    var filter_val_str: [128]u8 = undefined;
+    @memset(&filter_val_str, 0);
+    std.mem.copyForwards(u8, &filter_val_str, "BTC");
+    
+    try filters.append(.{
+        .field_index = 3, // Index of 'ticker' field
+        .value = .{ .string = filter_val_str }
+    });
+
+    const results = try db.query(1620000000, 1620000100, filters.items, allocator);
+    defer allocator.free(results);
+
+    // Aggregation
+    const stats = try db.getStatsByName(1620000000, 1620000100, "price");
+    std.debug.print("Min: {d}, Max: {d}\n", .{ stats.min, stats.max });
+
+    // Get Latest Value
+    const latest = try db.getLatestByName("price");
+    std.debug.print("Latest value: {d}, Timestamp: {d}\n", .{ latest.value, latest.timestamp });
+
+    // Drop Database (Close & Delete)
+    try db.drop();
+}
+```
+
+### 🐍 Python
+High-performance Python bindings using `ctypes`.
+
+```bash
+# Build bindings
+zig build python-bindings
+```
+
+```python
+from bindings.python.hocdb import HOCDB, Field, Type
+
+# Define Schema
+schema = [
+    Field("timestamp", Type.I64),
+    Field("price", Type.F64),
+    Field("active", Type.Bool),
+    Field("ticker", Type.String)
+]
+
+# Initialize
+db = HOCDB("BTC_USD", "data", schema)
+
+# Append
+db.append({
+    "timestamp": 1620000000, 
+    "price": 50000.0, 
+    "active": True, 
+    "ticker": "BTC"
+})
+
+# Query with Filter
+filters = {"ticker": "BTC"}
+results = db.query(1620000000, 1620000100, filters)
+
+# Aggregation
+stats = db.get_stats(1620000000, 1620000100, "price")
+print(f"Min: {stats.min}, Max: {stats.max}")
+
+# Get Latest Value
+latest = db.get_latest("price")
+print(f"Latest value: {latest.value}, Timestamp: {latest.timestamp}")
+
+# Drop
+db.drop()
+```
+
+### 🚀 Node.js
+N-API bindings for maximum performance.
+
+```bash
+cd bindings/node && npm install
+```
+
+```javascript
+const hocdb = require('./bindings/node');
+
+// Async API (Recommended)
+async function run() {
+    const db = await hocdb.dbInitAsync("BTC_USD", "data", [
+        { name: "timestamp", type: "i64" },
+        { name: "price", type: "f64" },
+        { name: "active", type: "bool" },
+        { name: "ticker", type: "string" }
+    ]);
+
+    await db.append({
+        timestamp: 1620000000n,
+        price: 50000.0,
+        active: true,
+        ticker: "BTC"
+    });
+
+    // Query with Filter
+    const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
+
+    // Aggregation
+    const stats = await db.getStats(1620000000n, 1620000100n, "price");
+    console.log(`Min: ${stats.min}, Max: ${stats.max}`);
+
+    // Get Latest Value
+    const latest = await db.getLatest("price");
+    console.log(`Latest value: ${latest.value}, Timestamp: ${latest.timestamp}`);
+
+    // Drop
+    await db.drop();
+}
+
+run();
+```
+
+### 🥟 Bun
+Native FFI bindings for Bun.
+
+```typescript
+import { HOCDBAsync } from "./bindings/bun/index.ts";
+
+const db = new HOCDBAsync("BTC_USD", "./data", [
+    { name: "timestamp", type: "i64" },
+    { name: "price", type: "f64" },
+    { name: "active", type: "bool" },
+    { name: "ticker", type: "string" }
+]);
+
+await db.append({
+    timestamp: 1620000000n,
+    price: 50000.0,
+    active: true,
+    ticker: "BTC"
+});
+
+// Query with Filter
+const results = await db.query(1620000000n, 1620000100n, { ticker: "BTC" });
+
+// Aggregation
+const stats = await db.getStats(1620000000n, 1620000100n, "price", { percentiles: true });
+console.log(stats);
+
+// Get Latest Value
+const latest = await db.getLatest("price");
+console.log(latest);
+
+// Drop
+await db.drop();
+```
+
+### 🇨 C / C++
+Direct access to the core engine.
+
 ```cpp
 #include "hocdb_cpp.h"
-// ...
-hocdb::Database db("BTC_USD", "data", schema);
-db.append(record);
-auto stats = db.getStats(start, end, "price", true); // true = compute percentiles
+
+int main() {
+    std::vector<hocdb::Field> schema = {
+        {"timestamp", HOCDB_TYPE_I64},
+        {"price", HOCDB_TYPE_F64},
+        {"active", HOCDB_TYPE_BOOL},
+        {"ticker", HOCDB_TYPE_STRING}
+    };
+    
+    hocdb::Database db("BTC_USD", "data", schema);
+    
+    // Append (using raw bytes or helper struct)
+    // ... (append logic depends on struct layout)
+
+    // Query with Filter
+    std::map<std::string, hocdb::FilterValue> filters;
+    filters["ticker"] = "BTC";
+    
+    auto query_data = hocdb::query_with_raii<Trade>(db, 1620000000, 1620000100, filters);
+
+    // Aggregation
+    auto stats = db.getStatsByName(1620000000, 1620000100, "price");
+    // stats.min, stats.max, etc.
+
+    // Get Latest Value
+    auto latest = db.getLatestByName("price");
+    // latest.first (value), latest.second (timestamp)
+
+    // Drop
+    db.drop();
+}
 ```
 
-### Go
+### 🐹 Go
+Idiomatic Go bindings using CGO.
+
+```bash
+# Build bindings
+zig build go-bindings
+```
+
 ```go
-import "hocdb"
-// ...
-db, _ := hocdb.New("BTC_USD", "data", schema, options)
-db.Append(record)
-stats, _ := db.GetStatsByName(start, end, "price", true)
-```
+package main
 
-### Python
-```python
-from hocdb import HOCDB
-// ...
-db = HOCDB("BTC_USD", "data", schema)
-db.append(record)
-stats = db.get_stats(start, end, "price", compute_percentiles=True)
-```
+import (
+    "fmt"
+    "hocdb"
+)
 
-### Node.js
-```javascript
-const hocdb = require('hocdb');
-// ...
-const db = await hocdb.dbInitAsync("BTC_USD", "data", schema);
-await db.append(record);
-const stats = await db.getStats(start, end, "price", { percentiles: true });
-```
+func main() {
+    schema := []hocdb.Field{
+        {Name: "timestamp", Type: hocdb.TypeI64},
+        {Name: "price", Type: hocdb.TypeF64},
+        {Name: "active", Type: hocdb.TypeBool},
+        {Name: "ticker", Type.TypeString},
+    }
 
-### Bun
-```typescript
-import { HOCDBAsync } from "hocdb";
-// ...
-const db = new HOCDBAsync("BTC_USD", "data", schema);
-await db.append(record);
-const stats = await db.getStats(start, end, "price", { percentiles: true });
+    db, _ := hocdb.New("BTC_USD", "data", schema, hocdb.Options{})
+    
+    // Append
+    record, _ := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0, true, "BTC")
+    db.Append(record)
+
+    // Query with Filter
+    filters := map[string]interface{}{
+        "ticker": "BTC",
+    }
+    data, _ := db.Query(1620000000, 1620000100, filters)
+    fmt.Printf("Queried %d bytes\n", len(data))
+
+    // Aggregation
+    stats, err := db.GetStatsByName(1620000000, 1620000100, "price", false)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("Min: %f, Max: %f\n", stats.Min, stats.Max)
+
+    // Get Latest Value
+    latest, err := db.GetLatestByName("price")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("Latest value: %f, Timestamp: %d\n", latest.Value, latest.Timestamp)
+
+    // Drop
+    db.Drop()
+}
 ```
 
 ## Contributing
