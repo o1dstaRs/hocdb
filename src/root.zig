@@ -79,6 +79,9 @@ pub const Schema = struct {
     }
 };
 
+// Compatibility shim for std.fs.File
+const File = if (@hasDecl(std.fs, "File")) std.fs.File else @typeInfo(@typeInfo(@TypeOf(std.fs.Dir.createFile)).Fn.return_type.?).ErrorUnion.payload;
+
 pub const DynamicTimeSeriesDB = struct {
     const Self = @This();
 
@@ -102,7 +105,7 @@ pub const DynamicTimeSeriesDB = struct {
     // Custom Buffered Writer
     const BLOCK_SIZE = 4096;
     const BufferedWriter = struct {
-        file: std.fs.File,
+        file: File,
         buffer: [BLOCK_SIZE]u8 = undefined,
         index: usize = 0,
         max_file_size: u64,
@@ -111,7 +114,7 @@ pub const DynamicTimeSeriesDB = struct {
         is_wrapped: *bool,
         record_size: usize,
 
-        pub fn init(file: std.fs.File, max_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool, rec_size: usize) @This() {
+        pub fn init(file: File, max_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool, rec_size: usize) @This() {
             return .{
                 .file = file,
                 .max_file_size = max_size,
@@ -164,7 +167,7 @@ pub const DynamicTimeSeriesDB = struct {
         }
     };
 
-    file: std.fs.File,
+    file: File,
     buffered_writer: BufferedWriter,
     last_timestamp: ?i64 = null,
     max_file_size: u64,
@@ -210,7 +213,7 @@ pub const DynamicTimeSeriesDB = struct {
         const full_path = try std.fs.path.join(allocator, &[_][]const u8{ dir_path, filename });
         errdefer allocator.free(full_path);
 
-        var file: std.fs.File = undefined;
+        var file: File = undefined;
         var retry_count: usize = 0;
         while (retry_count < 3) : (retry_count += 1) {
             if (std.fs.cwd().openFile(full_path, .{ .mode = .read_write })) |f| {
@@ -243,7 +246,7 @@ pub const DynamicTimeSeriesDB = struct {
         var is_wrapped = false;
 
         const readAll = struct {
-            fn readAll(f: std.fs.File, dest: []u8) !usize {
+            fn readAll(f: File, dest: []u8) !usize {
                 var index: usize = 0;
                 while (index < dest.len) {
                     const amt = try f.read(dest[index..]);
