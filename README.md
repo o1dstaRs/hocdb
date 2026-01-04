@@ -62,6 +62,9 @@ HOCDB uses the Zig build system.
 # Build core library and all bindings
 zig build
 
+# Run tests with summary
+zig build test --summary all
+
 # Run benchmarks
 zig build bench -Doptimize=ReleaseFast
 ```

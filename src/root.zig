@@ -80,7 +80,10 @@ pub const Schema = struct {
 };
 
 // Compatibility shim for std.fs.File
-const File = if (@hasDecl(std.fs, "File")) std.fs.File else @typeInfo(@typeInfo(@TypeOf(std.fs.Dir.createFile)).Fn.return_type.?).ErrorUnion.payload;
+const File = if (@hasDecl(std.fs, "File")) std.fs.File else blk: {
+    const Dir = @TypeOf(std.fs.cwd());
+    break :blk @typeInfo(@typeInfo(@TypeOf(Dir.createFile)).Fn.return_type.?).ErrorUnion.payload;
+};
 
 pub const DynamicTimeSeriesDB = struct {
     const Self = @This();
