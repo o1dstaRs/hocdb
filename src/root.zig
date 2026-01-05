@@ -79,103 +79,11 @@ pub const Schema = struct {
     }
 };
 
-// Compatibility Shim for Zig std.fs overhaul
-const Dir = if (@hasDecl(std.fs, "Dir")) std.fs.Dir else std.Io.Dir;
-const File = if (@hasDecl(std.fs, "File")) std.fs.File else std.Io.File;
+const Dir = std.fs.Dir;
+const File = std.fs.File;
 
 fn cwd() Dir {
-    if (@hasDecl(std.fs, "cwd")) return std.fs.cwd();
-    return std.Io.Dir.cwd();
-}
-
-fn compatMakeOpenPath(dir: Dir, sub_path: []const u8) !Dir {
-    if (@hasDecl(std.fs, "Dir") and @hasDecl(std.fs.Dir, "makeOpenPath")) {
-        return dir.makeOpenPath(sub_path, .{});
-    } else {
-        // Semantic: Create implementation for std.Io (simplified)
-        // For now, if makeOpenPath is missing, we assume we might need to create it manually.
-        // Or deeper issue: std.Io.Dir might behave differently.
-        // Let's try to just open if exists, or create.
-        // But makeOpenPath is recursive.
-        // Fallback: Just try to open, if fail, try makeDir then open?
-        // This is complex. Let's assume for CI strictly finding 'data' dir:
-        // try dir.makeDir(sub_path); return dir.openDir(sub_path, .{});
-        // Real implementation would be recursive.
-        // Given CI usage, usually just one level "data".
-        // On Master, makeDir is missing or requires context. We just try open.
-        // _ = dir.makeDir(sub_path) catch {};
-        // Given CI usage, usually just one level "data".
-        // On Master, makeDir is missing or requires context. We just try open.
-        // _ = dir.makeDir(sub_path) catch {};
-        return compatOpenDir(dir, sub_path);
-    }
-}
-
-// Helper for Zig Master Io context
-fn getIo() std.Io {
-    if (@hasDecl(std.Io, "getStdIo")) return std.Io.getStdIo();
-    @compileError("Cannot find std.Io.getStdIo");
-}
-
-fn compatOpenDir(dir: Dir, sub_path: []const u8) !Dir {
-    if (@hasDecl(std.fs, "Dir") and @hasDecl(std.fs.Dir, "openDir")) {
-        return dir.openDir(sub_path, .{});
-    } else {
-        const io = getIo();
-        return dir.openDir(io, sub_path, .{});
-    }
-}
-
-fn compatDeleteFile(dir: Dir, sub_path: []const u8) !void {
-    if (@hasDecl(std.fs, "Dir") and @hasDecl(std.fs.Dir, "deleteFile")) {
-        return dir.deleteFile(sub_path);
-    } else {
-        const io = getIo();
-        return dir.deleteFile(io, sub_path);
-    }
-}
-
-fn compatPwriteAll(file: File, data: []const u8, offset: u64) !void {
-    if (@hasDecl(std.fs, "File")) {
-        try file.pwriteAll(data, offset);
-    } else {
-        // Master: pwriteAll missing, use pwrite loop
-        var current_offset = offset;
-        var remaining = data;
-        while (remaining.len > 0) {
-            const amt = try file.pwrite(remaining, current_offset);
-            if (amt == 0) return error.DiskFull;
-            current_offset += amt;
-            remaining = remaining[amt..];
-        }
-    }
-}
-
-fn compatClose(file: File) void {
-    if (@hasDecl(std.fs, "File")) {
-        file.close();
-    } else {
-        const io = getIo();
-        file.close(io);
-    }
-}
-
-fn compatLock(file: File) !void {
-    if (@hasDecl(std.fs, "File")) {
-        try file.lock(.exclusive);
-    } else {
-        const io = getIo();
-        try file.lock(io, .exclusive);
-    }
-}
-
-fn compatUnlock(file: File) void {
-    if (@hasDecl(std.fs, "File")) {
-        file.unlock();
-    } else {
-        const io = getIo();
-        file.unlock(io);
-    }
+    return std.fs.cwd();
 }
 
 pub const DynamicTimeSeriesDB = struct {
@@ -244,7 +152,7 @@ pub const DynamicTimeSeriesDB = struct {
                     continue;
                 }
 
-                try compatPwriteAll(self.file, remaining[0..chunk_size], self.write_cursor.*);
+                try self.file.pwriteAll(remaining[0..chunk_size], self.write_cursor.*);
                 self.write_cursor.* += chunk_size;
                 remaining = remaining[chunk_size..];
             }
@@ -300,7 +208,7 @@ pub const DynamicTimeSeriesDB = struct {
         const aligned_capacity = (data_capacity / record_size) * record_size;
         const effective_max_size = HEADER_SIZE + aligned_capacity;
 
-        var dir = try compatMakeOpenPath(cwd(), dir_path);
+        var dir = try cwd().makeOpenPath(dir_path, .{});
         defer dir.close();
 
         const filename = try std.fmt.allocPrint(allocator, "{s}.bin", .{ticker});
@@ -328,7 +236,7 @@ pub const DynamicTimeSeriesDB = struct {
         } else {
             return error.FileNotFound; // Failed after retries
         }
-        errdefer compatClose(file);
+        errdefer file.close();
 
         // try file.sync(); // Sync might also need compat?
         const stat = try file.stat();
@@ -338,7 +246,7 @@ pub const DynamicTimeSeriesDB = struct {
         var write_cursor: u64 = HEADER_SIZE;
         var is_wrapped = false;
 
-        compatLock(file) catch {}; // Try lock
+        try file.lock(.exclusive); // Try lock
 
         const readAll = struct {
             fn readAll(f: File, dest: []u8, offset: u64) !usize {
@@ -561,8 +469,8 @@ pub const DynamicTimeSeriesDB = struct {
             std.debug.print("ERROR: Failed to flush in deinit: {}\n", .{err});
         };
         self.file.sync() catch {};
-        compatUnlock(self.file);
-        compatClose(self.file);
+        self.file.unlock();
+        self.file.close();
         for (self.fields) |f| self.allocator.free(f.name);
         self.allocator.free(self.fields);
         self.allocator.free(self.full_path);
@@ -571,11 +479,11 @@ pub const DynamicTimeSeriesDB = struct {
 
     pub fn drop(self: *Self) !void {
         // Close the file first
-        compatUnlock(self.file);
-        compatClose(self.file);
+        self.file.unlock();
+        self.file.close();
 
         // Delete the file
-        try compatDeleteFile(cwd(), self.full_path);
+        try cwd().deleteFile(self.full_path);
 
         // Free resources (similar to deinit but we don't close file again)
         for (self.fields) |f| self.allocator.free(f.name);
