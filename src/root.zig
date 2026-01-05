@@ -104,29 +104,50 @@ fn compatMakeOpenPath(dir: Dir, sub_path: []const u8) !Dir {
         // Given CI usage, usually just one level "data".
         // On Master, makeDir is missing or requires context. We just try open.
         // _ = dir.makeDir(sub_path) catch {};
+        // Given CI usage, usually just one level "data".
+        // On Master, makeDir is missing or requires context. We just try open.
+        // _ = dir.makeDir(sub_path) catch {};
+        return compatOpenDir(dir, sub_path);
+    }
+}
+
+// Helper for Zig Master Io context
+fn getIo() std.Io {
+    if (@hasDecl(std.Io, "getStdIo")) return std.Io.getStdIo();
+    @compileError("Cannot find std.Io.getStdIo");
+}
+
+fn compatOpenDir(dir: Dir, sub_path: []const u8) !Dir {
+    if (@hasDecl(std.fs, "Dir") and @hasDecl(std.fs.Dir, "openDir")) {
         return dir.openDir(sub_path, .{});
+    } else {
+        const io = getIo();
+        return dir.openDir(io, sub_path, .{});
     }
 }
 
-fn compatLock(file: File) !void {
-    if (@hasDecl(std.fs, "File")) {
-        try file.lock(.exclusive);
+fn compatDeleteFile(dir: Dir, sub_path: []const u8) !void {
+    if (@hasDecl(std.fs, "Dir") and @hasDecl(std.fs.Dir, "deleteFile")) {
+        return dir.deleteFile(sub_path);
     } else {
-        // std.Io.File lock
-        // Requires Io context?
-        // If we can't get it, maybe skip locking for now on Master?
-        // Or try:
-        // const io = std.Io.getStdIo();
-        // try file.lock(io, .exclusive);
+        const io = getIo();
+        return dir.deleteFile(io, sub_path);
     }
 }
 
-fn compatUnlock(file: File) void {
+fn compatPwriteAll(file: File, data: []const u8, offset: u64) !void {
     if (@hasDecl(std.fs, "File")) {
-        file.unlock();
+        try file.pwriteAll(data, offset);
     } else {
-        // std.Io.File unlock
-        // file.unlock(io);
+        // Master: pwriteAll missing, use pwrite loop
+        var current_offset = offset;
+        var remaining = data;
+        while (remaining.len > 0) {
+            const amt = try file.pwrite(remaining, current_offset);
+            if (amt == 0) return error.DiskFull;
+            current_offset += amt;
+            remaining = remaining[amt..];
+        }
     }
 }
 
@@ -134,9 +155,26 @@ fn compatClose(file: File) void {
     if (@hasDecl(std.fs, "File")) {
         file.close();
     } else {
-        // Master std.Io.File.close(io) requires Io context.
-        // TODO: Pass Io context correctly. For now, we skip correct closing on Master
-        // to unblock CI. The OS will clean up resources on process exit.
+        const io = getIo();
+        file.close(io);
+    }
+}
+
+fn compatLock(file: File) !void {
+    if (@hasDecl(std.fs, "File")) {
+        try file.lock(.exclusive);
+    } else {
+        const io = getIo();
+        try file.lock(io, .exclusive);
+    }
+}
+
+fn compatUnlock(file: File) void {
+    if (@hasDecl(std.fs, "File")) {
+        file.unlock();
+    } else {
+        const io = getIo();
+        file.unlock(io);
     }
 }
 
@@ -206,7 +244,7 @@ pub const DynamicTimeSeriesDB = struct {
                     continue;
                 }
 
-                try self.file.pwriteAll(remaining[0..chunk_size], self.write_cursor.*);
+                try compatPwriteAll(self.file, remaining[0..chunk_size], self.write_cursor.*);
                 self.write_cursor.* += chunk_size;
                 remaining = remaining[chunk_size..];
             }
@@ -537,7 +575,7 @@ pub const DynamicTimeSeriesDB = struct {
         compatClose(self.file);
 
         // Delete the file
-        try cwd().deleteFile(self.full_path);
+        try compatDeleteFile(cwd(), self.full_path);
 
         // Free resources (similar to deinit but we don't close file again)
         for (self.fields) |f| self.allocator.free(f.name);
