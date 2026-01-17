@@ -18,13 +18,11 @@ const schema = [
 async function runTest() {
     let db;
     try {
-        console.log("Initializing Async DB...");
         db = await hocdb.dbInitAsync(TICKER, DATA_DIR, schema, {
             max_file_size: 1024 * 1024,
             overwrite_on_full: true
         });
 
-        console.log("Appending data asynchronously...");
         const count = 1000;
         const start = performance.now();
         const promises = [];
@@ -32,24 +30,16 @@ async function runTest() {
             promises.push(db.append({ timestamp: BigInt(i), value: i * 1.1 }));
         }
         await Promise.all(promises);
-        const end = performance.now();
-        console.log(`Appended ${count} records in ${(end - start).toFixed(2)}ms`);
-
-        console.log("Querying data asynchronously...");
         const results = await db.query(0, count, []);
-        console.log(`Query returned ${results.length} records`);
         if (results.length !== count) {
             throw new Error(`Expected ${count} records, got ${results.length}`);
         }
 
-        console.log("Getting stats asynchronously (using string field 'value')...");
         const stats = await db.getStats(0, count, "value"); // Field index 1 is 'value'
-        console.log("Stats:", stats);
         if (stats.count !== BigInt(count)) {
             throw new Error(`Expected stats count ${count}, got ${stats.count}`);
         }
 
-        console.log("Dropping DB...");
         await db.drop();
         db = null; // Prevent double close
 
@@ -58,9 +48,6 @@ async function runTest() {
         if (fs.existsSync(filePath)) {
             throw new Error(`Database file ${filePath} still exists after drop!`);
         }
-        console.log("Database file successfully deleted.");
-
-        console.log("✅ Async Test Passed!");
     } finally {
         if (db) {
             try { await db.close(); } catch (e) { /* ignore */ }

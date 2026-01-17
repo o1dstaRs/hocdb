@@ -121,6 +121,8 @@ pub const DynamicTimeSeriesDB = struct {
         pub fn init(file: File, max_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool, rec_size: usize) @This() {
             return .{
                 .file = file,
+                .buffer = undefined,
+                .index = 0,
                 .max_file_size = max_size,
                 .write_cursor = cursor,
                 .overwrite_on_full = overwrite,
@@ -587,13 +589,13 @@ pub const DynamicTimeSeriesDB = struct {
             return self.getPhysicalOffsetLinear(index);
         }
     }
-    fn readTimestampAt(self: *Self, index: u64) !i64 {
+    pub fn readTimestampAt(self: *Self, index: u64) !i64 {
         const offset = self.getPhysicalOffset(index);
-        var buf: [8]u8 = undefined;
-        // Use compat? Or preadAll directly (assumed available)
-        const len = try self.file.preadAll(&buf, offset + self.timestamp_offset);
+        var ts_buf: [8]u8 = undefined;
+        // std.debug.print("DEBUG: readTimestampAt index={d} offset={d}\n", .{ index, offset });
+        const len = try self.file.preadAll(&ts_buf, offset + self.timestamp_offset);
         if (len != 8) return error.UnexpectedEndOfFile;
-        return std.mem.bytesToValue(i64, &buf);
+        return std.mem.bytesToValue(i64, &ts_buf);
     }
 
     pub fn binarySearch(self: *Self, target: i64) !u64 {
