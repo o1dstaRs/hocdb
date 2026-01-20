@@ -1,6 +1,6 @@
 {
     "name": "hocdb-bun",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "hocdb Bindings for Bun",
     "main": "index.js",
     "type": "module",

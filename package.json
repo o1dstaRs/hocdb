@@ -1,6 +1,6 @@
 {
     "name": "hocdb",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "High Performance Time Series Database",
     "main": "bindings/node/index.js",
     "types": "bindings/bun/index.ts",

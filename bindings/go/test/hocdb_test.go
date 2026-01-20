@@ -347,6 +347,68 @@ func BenchmarkGetStats(b *testing.B) {
 	}
 }
 
+func TestDrop(t *testing.T) {
+	schema := []hocdb.Field{
+		{Name: "timestamp", Type: hocdb.TypeI64},
+		{Name: "price", Type: hocdb.TypeF64},
+	}
+
+	testDir := "../../../b_go_test_drop"
+	os.RemoveAll(testDir)
+	os.MkdirAll(testDir, 0755)
+
+	// Create database and add data
+	db, err := hocdb.New("DROP_TEST", testDir, schema, hocdb.Options{})
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+
+	record, _ := hocdb.CreateRecordBytes(schema, int64(1620000000), 50000.0)
+	db.Append(record)
+	record, _ = hocdb.CreateRecordBytes(schema, int64(1620000001), 50001.0)
+	db.Append(record)
+	db.Flush()
+
+	// Verify data directory exists and has files
+	entries, err := os.ReadDir(testDir)
+	if err != nil {
+		t.Fatalf("Failed to read test directory: %v", err)
+	}
+
+	filesBefore := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			filesBefore++
+		}
+	}
+
+	if filesBefore == 0 {
+		t.Fatal("Data files should exist before drop")
+	}
+	t.Logf("Files before drop: %d", filesBefore)
+
+	// Drop the database
+	db.Drop()
+
+	// Verify data files are deleted
+	filesAfter := 0
+	if entries, err := os.ReadDir(testDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				filesAfter++
+			}
+		}
+	}
+	t.Logf("Files after drop: %d", filesAfter)
+
+	if filesAfter > 0 {
+		t.Error("Data files should be deleted after drop")
+	}
+
+	// Cleanup
+	os.RemoveAll(testDir)
+}
+
 func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
@@ -355,6 +417,7 @@ func TestMain(m *testing.M) {
 	os.RemoveAll("../../../b_go_test_data")
 	os.RemoveAll("../../../b_go_test_data_filter")
 	os.RemoveAll("../../../b_go_test_auto_inc")
+	os.RemoveAll("../../../b_go_test_drop")
 
 	// Exit with the same code as the tests
 	os.Exit(code)

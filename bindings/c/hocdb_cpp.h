@@ -363,6 +363,16 @@ public:
   }
 
   /**
+   * @brief Close the database and delete all data files
+   */
+  void drop() {
+    if (handle_) {
+      hocdb_drop(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+  /**
    * @brief Check if the database handle is valid
    */
   bool is_valid() const { return handle_ != nullptr; }

@@ -218,7 +218,11 @@ class HOCDB:
             ctypes.POINTER(ctypes.c_longlong) # out_ts
         ]
         self.lib.hocdb_get_latest.restype = ctypes.c_int
-    
+
+        # hocdb_drop function
+        self.lib.hocdb_drop.argtypes = [ctypes.c_void_p]
+        self.lib.hocdb_drop.restype = None
+
     def append(self, *args) -> bool:
         """
         Append a record to the database.
@@ -507,6 +511,12 @@ class HOCDB:
         """Close and free the database handle"""
         if self.handle:
             self.lib.hocdb_close(self.handle)
+            self.handle = None
+
+    def drop(self):
+        """Close the database and delete all data files from disk"""
+        if self.handle:
+            self.lib.hocdb_drop(self.handle)
             self.handle = None
 
 
