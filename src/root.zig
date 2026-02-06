@@ -1270,4 +1270,6 @@ test "TimeSeriesDB generic usage" {
 test {
     _ = @import("test_stats.zig");
     _ = @import("test_query.zig");
+    _ = @import("test_auto_increment.zig");
+    _ = @import("test_integrity.zig");
 }
