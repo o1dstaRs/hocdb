@@ -1,6 +1,8 @@
 import { dlopen, FFIType, suffix, ptr, toArrayBuffer } from "bun:ffi";
 import { join } from "path";
 
+const encoder = new TextEncoder();
+
 // Locate the shared library
 const libPath = join(import.meta.dir, "..", "..", "zig-out", "lib", `libhocdb.${suffix}`);
 
@@ -30,8 +32,6 @@ const { symbols } = dlopen(libPath, {
         returns: FFIType.void,
     },
 });
-
-const encoder = new TextEncoder();
 
 export class HOCDB {
     constructor(ticker, path, schema, config = {}) {
