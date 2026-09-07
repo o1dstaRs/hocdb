@@ -99,9 +99,9 @@ test "Aggregation API (Wrapped Buffer)" {
 
     const DB = TimeSeriesDB(TestRecord);
     const record_size = @sizeOf(TestRecord); // 16
-    const header_size = 12; // 4 magic + 8 hash
+    const header_size = DynamicTimeSeriesDB.HEADER_SIZE;
     const capacity = 5;
-    const max_size = header_size + capacity * record_size; // 12 + 80 = 92
+    const max_size = header_size + capacity * record_size;
 
     var db = try DB.init(ticker, dir, std.testing.allocator, .{
         .max_file_size = max_size,

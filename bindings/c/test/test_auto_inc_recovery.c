@@ -30,8 +30,8 @@ int main() {
 
     // 1. Create and fill ring buffer
     {
-        // Max size for 3 records: Header(12) + 3 * 16 = 60
-        HOCDBHandle db = hocdb_init(ticker, dir, schema, 2, 60, 1, 1, 1);
+        // Max size for 3 records: header (64) + 3 * 16
+        HOCDBHandle db = hocdb_init(ticker, dir, schema, 2, (int64_t)hocdb_header_size() + 3 * 16, 1, 1, 1);
         assert(db != NULL);
 
         TestRecord r1 = {0, 1.1};
@@ -53,7 +53,7 @@ int main() {
 
     // 2. Re-open and verify recovery
     {
-        HOCDBHandle db = hocdb_init(ticker, dir, schema, 2, 60, 1, 1, 1);
+        HOCDBHandle db = hocdb_init(ticker, dir, schema, 2, (int64_t)hocdb_header_size() + 3 * 16, 1, 1, 1);
         assert(db != NULL);
 
         // Next append should be timestamp 4

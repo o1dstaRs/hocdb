@@ -32,6 +32,7 @@ This library is built for high-frequency trading and other latency-sensitive tim
 *   **SIMD Aggregation**: Statistical operations (min, max, sum, mean) utilization SIMD instructions for extreme speed.
 *   **Ring Buffer Mode**: Optional circular buffer support for constant-space usage.
 *   **Cross-Language Support**: Native bindings for C, C++, Python, Go, Node.js, and Bun.
+*   **Built-in Indicators & Analytics**: 83 technical, microstructure, pair, label and session indicators (SMA/EMA ladders, RSI, MACD, Bollinger, ATR, ADX, Ichimoku, Supertrend, VWAP, ...), tick→bar resampling, risk statistics (Sharpe, Sortino, drawdown, VaR, Hurst) and a one-shot ~100-field snapshot, all computed in-engine with SIMD kernels and verified against TA-Lib. See [INDICATORS.md](INDICATORS.md).
 
 ## API Overview
 
@@ -45,6 +46,45 @@ The HOCDB API is consistent across all supported languages.
 *   `getLatest(field)`: Retrieve the most recent value and timestamp for a field (by index or name).
 *   `close()`: Close the database handle and release resources.
 *   `drop()`: Close the database and delete data files from disk.
+
+## Indicators & Analytics
+
+Indicators are computed inside the engine from the stored columns in one pass,
+so an agent can fetch a complete market picture with a single call. The same
+surface exists in every binding (see the binding READMEs for the exact
+signatures and [INDICATORS.md](INDICATORS.md) for the full catalogue,
+conventions and performance numbers):
+
+*   `indicators(specs, range | tail, options)`: any set of indicators as aligned series in one pass (`{ kind: "rsi", period: 14 }`, `{ kind: "macd" }`, `{ kind: "sma", period: 10, field: "volume" }`, ...). Warm-up is handled automatically (`lookback: "auto"`), and `bucket` aggregates ticks into OHLCV bars first.
+*   `snapshot(options)`: ~100 named values for the latest bar (SMA 5…200, EMA 9…200, RSI, Stochastics, MACD, PPO, CCI, ADX/DI, Aroon, PSAR, Supertrend, Ichimoku, Bollinger, Keltner, Donchian, ATR, OBV, VWAP, MFI, returns, z-score, drawdown, Sharpe, ...) — the "give me everything" call for an LLM trading agent, ~0.5 ms.
+*   `summary(range, field, periods_per_year)`: 29 risk/performance statistics (total/annualised return, volatility, Sharpe, Sortino, Calmar, max drawdown & duration, VaR/CVaR 95, win rate, profit factor, skew, kurtosis, autocorrelation, Hurst exponent, mean-reversion half-life).
+*   `ohlcv(range, bucket, price, volume, side)`: OHLCV bars aggregated from raw records, with buy volume when the aggressor side is stored.
+*   `pairIndicators(other, specs, ...)`: the same indicators over two databases aligned on time (ratio, spread z-score, relative strength, correlation, beta to a benchmark).
+*   `snapshotMulti(buckets)`: the snapshot for several bar sizes (1m / 5m / 1h / 1d) from one read.
+*   `health(...)`: gaps, stale feed, outlier and volume sanity checks. `evaluate(decisions, ...)`: hit rate, PnL, Sharpe and drawdown of the agent's own decisions.
+*   Microstructure kinds on tick data (spread, order-flow imbalance, tick pressure, trade intensity, Amihud illiquidity, realised volatility), look-ahead labels (forward returns with MFE/MAE, triple-barrier) and session-anchored kinds (session VWAP, session range, opening range, pivots).
+
+```ts
+// Bun: 5-minute bars from 1-minute records, indicators for the last 200 bars
+const res = db.indicatorsTail(200, [
+  { kind: "ema", period: 21 }, { kind: "macd" }, { kind: "bbands" }, { kind: "atr" },
+], { bucket: 300 });
+res.columns["ema_21"]; res.columns["macd_hist"]; res.columns["bbands_upper"];
+
+const snap = db.snapshot({ periodsPerYear: 252 });
+snap.rsi_14; snap.supertrend_dir; snap.bb_percent_b; snap.sharpe_20;
+```
+
+```python
+# Python
+res = db.indicators([{"kind": "rsi"}, {"kind": "supertrend"}], tail=500)
+risk = db.summary(start_ts, end_ts, "close", periods_per_year=252)
+snap = db.snapshot(periods_per_year=252)
+```
+
+Every kernel is checked against TA-Lib 0.7 (or explicit numpy references for
+indicators TA-Lib lacks) in `src/test_indicators_golden.zig`, and against
+naive scalar implementations on million-row series in `src/test_indicators.zig`.
 
 ## Limitations
 
@@ -405,3 +445,59 @@ func main() {
 ## Contributing
 
 This repository is maintained by the Heroes of Crypto AI Team. We welcome issues and pull requests that improve performance or binding compatibility.
+## Durability, readers and operations
+
+HOCDB files carry a 64-byte header with the writer's *committed* cursor,
+updated atomically after every flush. That single word gives you both crash
+safety and multi-process reads:
+
+*   **Single writer, lock-free readers.** A writer takes an exclusive lock and
+    a second writer fails immediately with `DatabaseLocked`. Any number of
+    other processes can attach with `openReader` / `hocdb_open_reader`: they
+    take no lock, see exactly the data the writer has flushed, and pick up
+    new commits on every read (or explicitly with `refresh()`). Readers follow
+    compaction and rollover automatically. This is how an ingestion process
+    and a trading agent share one database.
+*   **fsync policy** per database: `none`, `on_close` (default), `on_flush`, or
+    `interval` (at most every *N* ms). `sync()` forces a flush and fsync.
+*   **Crash recovery.** On the next writer open, records written after the
+    last commit are adopted when they are complete and in timestamp order;
+    torn or out-of-order bytes are truncated. Both counts are in the metrics.
+*   **Checksums.** A CRC32C of the committed data is maintained incrementally
+    and stored in the header; `verify()` recomputes it, `verify_on_open`
+    refuses a corrupted file. (Not available for ring buffers.)
+*   **Retention and rollover.** `compact(min_ts)` / `retain_last(n)` rewrite
+    the file atomically; `retention_span` does it automatically once the
+    history exceeds the span by 25%. `rollover()` (or `rollover_size`) archives
+    the file as `<ticker>.<first_ts>-<last_ts>.bin` and continues with an empty
+    one; archives are ordinary databases.
+*   **Metrics.** Appends, flushes, commits, fsyncs (count and latency), reads
+    (count, p50/p99 latency, records read), refreshes, recovery and checksum
+    counters, compactions, rollovers, ingest lag (wall clock and, with
+    `timestamp_unit_ns`, in record time), committed records, file size.
+*   **Legacy files** (`HOC1`, 12-byte header) are migrated in place the first
+    time a writer opens them. Ring-buffer capacity is
+    `max_file_size = 64 + N × record_size`.
+
+```python
+writer = HOCDB("BTCUSD", "./data", schema, fsync="interval", fsync_interval_ms=500,
+               retention_span=30 * 86_400_000_000, timestamp_unit_ns=1_000)
+# ... in another process:
+reader = HOCDB.open_reader("BTCUSD", "./data", schema)
+snap = reader.snapshot(bucket=60_000_000)      # always the latest committed bars
+lag_ms = reader.metrics()["ingest_lag_wall_ns"] / 1e6
+```
+
+See the binding READMEs for the exact signatures.
+
+## Calendars, backtesting and universe features
+
+* **Trading calendars** (`calendar` option: `crypto`, `fx`, `nyse`, `nasdaq`, `lse`, `cme`, or a custom
+  definition): session-anchored indicators follow real exchange sessions and holidays, data health
+  measures gaps in trading time, and annualisation (`periods_per_year`) is derived automatically.
+* **Signal backtester**: a target-position series over the rows of an indicator window gives an equity
+  curve with costs, slippage, stops, a trade list and full statistics, plus walk-forward splits.
+* **Universe features**: momentum / volatility ranks, correlation matrix, market factor and betas,
+  dispersion and breadth over a watch-list of databases in one call.
+
+See `INDICATORS.md` for the semantics and every binding's README for the calls.

@@ -103,7 +103,7 @@ function runRingBufferTest() {
     let dbRing;
     try {
         dbRing = new HOCDB(RING_TICKER, RING_DATA_DIR, schema as any, {
-            max_file_size: 60,
+            max_file_size: HOCDB.headerSize() + 2 * 24, // 64-byte header + 2 records of 24 bytes
             overwrite_on_full: true
         });
 

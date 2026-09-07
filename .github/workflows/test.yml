@@ -54,6 +54,9 @@ jobs:
       run: |
         export PYTHONPATH=$(pwd)/bindings/python
         python3 bindings/python/test/test_query.py
+        python3 bindings/python/test/test_indicators.py
+        python3 bindings/python/test/test_storage.py
+        python3 bindings/python/test/test_round4.py
 
     - name: Run Go Tests
       run: |
@@ -73,11 +76,59 @@ jobs:
         ./bindings/c/test/test_auto_inc_recovery
         rm bindings/c/test/test_auto_inc_recovery
 
+    - name: Run C Indicator Test
+      run: |
+        mkdir -p test_binaries
+        clang -o test_binaries/test_c_indicators bindings/c/test/test_indicators.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+        ./test_binaries/test_c_indicators
+        rm test_binaries/test_c_indicators
+
+    - name: Run C Storage Test
+      run: |
+        mkdir -p test_binaries
+        clang -o test_binaries/test_c_storage bindings/c/test/test_storage.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+        ./test_binaries/test_c_storage
+        rm test_binaries/test_c_storage
+
+    - name: Run C++ Indicator Test
+      run: |
+        mkdir -p test_binaries
+        clang++ -std=c++17 bindings/cpp/test/test_indicators.cpp -o test_binaries/test_cpp_indicators -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        ./test_binaries/test_cpp_indicators
+        rm test_binaries/test_cpp_indicators
+
     - name: Build Node.js Bindings
       run: zig build bindings
 
+    - name: Run C Calendar, Backtest and Universe Tests
+      run: |
+        mkdir -p test_binaries
+        for t in calendar backtest universe; do
+          clang -o test_binaries/test_c_$t bindings/c/test/test_$t.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+          ./test_binaries/test_c_$t
+          rm test_binaries/test_c_$t
+        done
+
+    - name: Run C++ Storage Test
+      run: |
+        mkdir -p test_binaries
+        clang++ -std=c++17 bindings/cpp/test/test_storage.cpp -o test_binaries/test_cpp_storage -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        ./test_binaries/test_cpp_storage
+        rm test_binaries/test_cpp_storage
+        clang++ -std=c++17 bindings/cpp/test/test_round4.cpp -o test_binaries/test_cpp_round4 -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+        ./test_binaries/test_cpp_round4
+        rm test_binaries/test_cpp_round4
+
     - name: Run Node.js Tests
-      run: node bindings/node/test/test.js
+      run: |
+        node bindings/node/test/test.js
+        node bindings/node/test/test_indicators.js
+        node bindings/node/test/test_storage.js
+        node bindings/node/test/test_round4.js
 
     - name: Run Bun Tests
-      run: bun run bindings/bun/test/test.ts
+      run: |
+        bun run bindings/bun/test/test.ts
+        bun run bindings/bun/test/test_indicators.ts
+        bun run bindings/bun/test/test_storage.ts
+        bun run bindings/bun/test/test_round4.ts

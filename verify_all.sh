@@ -16,6 +16,9 @@ echo ""
 echo "[2/8] Running Bun Tests..."
 bun run bindings/bun/test/test.ts
 bun run bindings/bun/test/test_async_drop.ts
+bun run bindings/bun/test/test_indicators.ts
+bun run bindings/bun/test/test_storage.ts
+bun run bindings/bun/test/test_round4.ts
 echo "✅ Bun Tests passed"
 
 # 3. Run Python Tests
@@ -23,6 +26,9 @@ echo ""
 echo "[3/8] Running Python Tests..."
 export PYTHONPATH=$(pwd)/bindings/python:$PYTHONPATH
 python3 bindings/python/test/test_query.py
+python3 bindings/python/test/test_indicators.py
+python3 bindings/python/test/test_storage.py
+python3 bindings/python/test/test_round4.py
 echo "✅ Python Tests passed"
 
 # 4. Run Go Tests
@@ -51,6 +57,15 @@ echo "[6/8] Running C++ Wrapper Tests..."
 clang++ -std=c++17 bindings/cpp/test/test.cpp -o test_binaries/test_cpp_wrapper -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
 ./test_binaries/test_cpp_wrapper
 rm test_binaries/test_cpp_wrapper
+clang++ -std=c++17 bindings/cpp/test/test_indicators.cpp -o test_binaries/test_cpp_indicators -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+./test_binaries/test_cpp_indicators
+rm test_binaries/test_cpp_indicators
+clang++ -std=c++17 bindings/cpp/test/test_storage.cpp -o test_binaries/test_cpp_storage -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+./test_binaries/test_cpp_storage
+rm test_binaries/test_cpp_storage
+clang++ -std=c++17 bindings/cpp/test/test_round4.cpp -o test_binaries/test_cpp_round4 -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
+./test_binaries/test_cpp_round4
+rm test_binaries/test_cpp_round4
 echo "✅ C++ Wrapper Tests passed"
 
 # 7. Run C Recovery and Filter Tests
@@ -66,6 +81,17 @@ rm test_binaries/test_c_filter
 clang -o test_binaries/simple_test bindings/c/test/simple_test.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
 ./test_binaries/simple_test
 rm test_binaries/simple_test
+clang -o test_binaries/test_c_indicators bindings/c/test/test_indicators.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+./test_binaries/test_c_indicators
+rm test_binaries/test_c_indicators
+clang -o test_binaries/test_c_storage bindings/c/test/test_storage.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+./test_binaries/test_c_storage
+rm test_binaries/test_c_storage
+for t in calendar backtest universe; do
+  clang -o test_binaries/test_c_$t bindings/c/test/test_$t.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
+  ./test_binaries/test_c_$t
+  rm test_binaries/test_c_$t
+done
 echo "✅ C Tests passed"
 
 # 8. Run Node.js Tests
@@ -74,6 +100,9 @@ echo "[8/8] Running Node.js Tests..."
 zig build bindings
 node bindings/node/test/test.js
 node bindings/node/test/test_async_drop.js
+node bindings/node/test/test_indicators.js
+node bindings/node/test/test_storage.js
+node bindings/node/test/test_round4.js
 echo "✅ Node.js Tests passed"
 
 echo ""

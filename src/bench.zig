@@ -308,5 +308,190 @@ pub fn main() !void {
         try stdout.print("Latency (p99):  {d} ns\n", .{p99});
     }
 
+    // --- INDICATOR BENCHMARK ---
+    {
+        const ind = hocdb.indicators;
+        try stdout.print("\n[INDICATOR BENCHMARK] (SIMD lanes: {d})\n", .{ind.lanes});
+        const n: usize = 1_000_000;
+        const close = try allocator.alloc(f64, n);
+        defer allocator.free(close);
+        const high = try allocator.alloc(f64, n);
+        defer allocator.free(high);
+        const low = try allocator.alloc(f64, n);
+        defer allocator.free(low);
+        const volume = try allocator.alloc(f64, n);
+        defer allocator.free(volume);
+        const out = try allocator.alloc(f64, 5 * n);
+        defer allocator.free(out);
+        var prng = std.Random.DefaultPrng.init(42);
+        const rnd = prng.random();
+        var px: f64 = 100.0;
+        for (0..n) |k| {
+            px *= @exp(rnd.floatNorm(f64) * 0.005);
+            close[k] = px;
+            high[k] = px * 1.002;
+            low[k] = px * 0.998;
+            volume[k] = 1000.0 + @as(f64, @floatFromInt(k % 100));
+        }
+        const o0 = out[0..n];
+        const o1 = out[n .. 2 * n];
+        const o2 = out[2 * n .. 3 * n];
+        const o3 = out[3 * n .. 4 * n];
+        const o4 = out[4 * n .. 5 * n];
+        const Case = struct { name: []const u8, run: *const fn (ind_close: []const f64, h: []const f64, l: []const f64, v: []const f64, a: std.mem.Allocator, outs: [5][]f64) anyerror!void };
+        const cases = [_]Case{
+            .{ .name = "sma(20)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.sma(c, 20, outs[0]);
+                }
+            }.f },
+            .{ .name = "ema(20)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.ema(c, 20, outs[0]);
+                }
+            }.f },
+            .{ .name = "rsi(14)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.rsi(c, 14, outs[0]);
+                }
+            }.f },
+            .{ .name = "macd(12,26,9)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.macd(c, 12, 26, 9, outs[0], outs[1], outs[2]);
+                }
+            }.f },
+            .{ .name = "bbands(20)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.bbands(c, 20, 2.0, outs[0], outs[1], outs[2], outs[3], outs[4]);
+                }
+            }.f },
+            .{ .name = "atr(14)", .run = struct {
+                fn f(c: []const f64, h: []const f64, l: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.atr(h, l, c, 14, outs[0]);
+                }
+            }.f },
+            .{ .name = "adx(14)", .run = struct {
+                fn f(c: []const f64, h: []const f64, l: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.adx(h, l, c, 14, outs[0], outs[1], outs[2]);
+                }
+            }.f },
+            .{ .name = "stoch(14,3,3)", .run = struct {
+                fn f(c: []const f64, h: []const f64, l: []const f64, _: []const f64, a: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.stoch(h, l, c, 14, 3, 3, outs[0], outs[1], a);
+                }
+            }.f },
+            .{ .name = "rolling_max(50)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, a: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.rollingMax(c, 50, outs[0], a);
+                }
+            }.f },
+            .{ .name = "obv", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, v: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.obv(c, v, outs[0]);
+                }
+            }.f },
+            .{ .name = "mfi(14)", .run = struct {
+                fn f(c: []const f64, h: []const f64, l: []const f64, v: []const f64, a: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.mfi(h, l, c, v, 14, outs[0], a);
+                }
+            }.f },
+            .{ .name = "linreg(20)", .run = struct {
+                fn f(c: []const f64, _: []const f64, _: []const f64, _: []const f64, _: std.mem.Allocator, outs: [5][]f64) anyerror!void {
+                    try ind.linreg(c, 20, outs[0], outs[1], outs[2], outs[3]);
+                }
+            }.f },
+        };
+        var checksum: f64 = 0;
+        for (cases) |cs| {
+            var timer = try std.time.Timer.start();
+            try cs.run(close, high, low, volume, allocator, .{ o0, o1, o2, o3, o4 });
+            const ns = timer.read();
+            checksum += o0[n - 1];
+            const per_sec = @as(f64, @floatFromInt(n)) / (@as(f64, @floatFromInt(ns)) / 1e9);
+            try stdout.print("  {s:<16} {d:>7.2} ms   {d:>14.0} records/sec\n", .{ cs.name, @as(f64, @floatFromInt(ns)) / 1e6, per_sec });
+        }
+        // Snapshot latency (the agent's "one shot" call) on 2500 bars.
+        {
+            const m: usize = 2500;
+            const ts = try allocator.alloc(i64, m);
+            defer allocator.free(ts);
+            for (0..m) |k| ts[k] = @intCast(k);
+            const reps: usize = 200;
+            var timer = try std.time.Timer.start();
+            var acc: f64 = 0;
+            for (0..reps) |_| {
+                const snap = try ind.snapshot(ts, null, high[0..m], low[0..m], close[0..m], volume[0..m], 252, allocator);
+                acc += snap.rsi_14;
+            }
+            const ns = timer.read() / reps;
+            checksum += acc;
+            try stdout.print("  snapshot(2500 bars, ~100 fields): {d:.1} us per call\n", .{@as(f64, @floatFromInt(ns)) / 1e3});
+        }
+        // Scalar analytics over the whole series.
+        {
+            var timer = try std.time.Timer.start();
+            const sm = try ind.summary(close, 252, allocator);
+            const ns = timer.read();
+            checksum += sm.sharpe;
+            try stdout.print("  summary({d} bars, 29 stats): {d:.2} ms\n", .{ n, @as(f64, @floatFromInt(ns)) / 1e6 });
+        }
+        // Signal backtester: SMA-crossover targets over the whole series.
+        {
+            const bt = hocdb.backtest_mod;
+            const target = try allocator.alloc(f64, n);
+            defer allocator.free(target);
+            const fast = try allocator.alloc(f64, n);
+            defer allocator.free(fast);
+            const slow = try allocator.alloc(f64, n);
+            defer allocator.free(slow);
+            try ind.sma(close, 10, fast);
+            try ind.sma(close, 50, slow);
+            for (0..n) |i| target[i] = if (ind.isNan(slow[i])) 0 else if (fast[i] > slow[i]) 1 else -1;
+            const bars_ts = try allocator.alloc(i64, n);
+            defer allocator.free(bars_ts);
+            for (0..n) |i| bars_ts[i] = @intCast(i * 60);
+            var timer = try std.time.Timer.start();
+            const r = try bt.run(bars_ts, null, null, null, close, target, .{ .initial_equity = 1_000_000, .cost_bps = 5, .slippage_bps = 1, .stop_loss = 0.02, .position_mode = 1, .periods_per_year = 252 * 390 }, .{}, null, allocator);
+            const ns = timer.read();
+            checksum += r.final_equity;
+            try stdout.print("  backtest({d} bars, {d} trades, stops): {d:.2} ms  {d:.0} bars/sec\n", .{ n, r.n_trades, @as(f64, @floatFromInt(ns)) / 1e6, @as(f64, @floatFromInt(n)) * 1e9 / @as(f64, @floatFromInt(ns)) });
+        }
+        // Universe features: 50 tickers x 500 bars (ranks, correlation matrix, betas).
+        {
+            const uni = hocdb.universe_mod;
+            const m: usize = 50;
+            const nb: usize = 500;
+            const buf = try allocator.alloc(f64, m * nb);
+            defer allocator.free(buf);
+            var uprng = std.Random.DefaultPrng.init(7);
+            const urnd = uprng.random();
+            const closes = try allocator.alloc([]const f64, m);
+            defer allocator.free(closes);
+            for (0..m) |k| {
+                var p: f64 = 100;
+                for (0..nb) |i| {
+                    p *= @exp(urnd.floatNorm(f64) * 0.01);
+                    buf[k * nb + i] = p;
+                }
+                closes[k] = buf[k * nb .. (k + 1) * nb];
+            }
+            const rows = try allocator.alloc(uni.Row, m);
+            defer allocator.free(rows);
+            const corr = try allocator.alloc(f64, m * m);
+            defer allocator.free(corr);
+            var timer = try std.time.Timer.start();
+            const reps: usize = 20;
+            var acc: f64 = 0;
+            for (0..reps) |_| {
+                const sm = try uni.compute(closes, null, null, .{}, rows, corr, allocator);
+                acc += sm.avg_pair_corr;
+            }
+            const ns = timer.read() / reps;
+            checksum += acc;
+            try stdout.print("  universe({d} tickers x {d} bars, corr matrix): {d:.1} us per call\n", .{ m, nb, @as(f64, @floatFromInt(ns)) / 1e3 });
+        }
+        try stdout.print("  Checksum: {d:.4}\n", .{checksum});
+        try stdout.flush();
+    }
     try stdout.flush();
 }

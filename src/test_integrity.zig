@@ -18,10 +18,10 @@ test "Integrity: Load with Ring Buffer" {
     defer std.fs.cwd().deleteTree(dir) catch {};
 
     // Calculate size for exactly 5 records
-    // Header (4+8=12) + 5 * (8+8+8=24) = 12 + 120 = 132 bytes
+    // header + 5 * (8+8+8=24) bytes
     const record_size = 24;
     const capacity = 5;
-    const max_size = 12 + (capacity * record_size);
+    const max_size = root.DynamicTimeSeriesDB.HEADER_SIZE + (capacity * record_size);
 
     const DB = TimeSeriesDB(TestStruct);
     var db = try DB.init(ticker, dir, std.testing.allocator, .{ .max_file_size = max_size, .overwrite_on_full = true });

@@ -46,7 +46,7 @@ test "TimeSeriesDB query usage" {
     // 2. Ring Buffer Test
     {
         // Small file size to force wrap
-        var db = try DB.init(ticker, dir_ring, std.testing.allocator, .{ .max_file_size = 60, .overwrite_on_full = true });
+        var db = try DB.init(ticker, dir_ring, std.testing.allocator, .{ .max_file_size = root.DynamicTimeSeriesDB.HEADER_SIZE + 48, .overwrite_on_full = true });
         defer db.deinit();
 
         try db.append(.{ .timestamp = 100, .value = 1.0 });
@@ -99,7 +99,7 @@ test "TimeSeriesDB multiple wrap" {
 
     // 3. Multiple Wrap Test
     {
-        var db = try DB.init(ticker, dir, std.testing.allocator, .{ .max_file_size = 60, .overwrite_on_full = true });
+        var db = try DB.init(ticker, dir, std.testing.allocator, .{ .max_file_size = root.DynamicTimeSeriesDB.HEADER_SIZE + 48, .overwrite_on_full = true });
         defer db.deinit();
 
         // Write 10 records. Capacity is 3.

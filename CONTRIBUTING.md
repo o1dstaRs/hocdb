@@ -58,6 +58,25 @@ Have an idea for a new feature? See [Suggesting Features](#suggesting-features).
    
    # Run benchmarks (to ensure no performance regression)
    zig build bench
+
+   # Verify every binding (C, C++, Python, Go, Node.js, Bun)
+   ./verify_all.sh
+   ```
+   If you touch the indicator kernels (`src/indicators.zig`), regenerate the
+   golden reference test after changing a convention or adding a kind. It needs
+   a Python with `numpy<2`, `pandas` and the `TA-Lib` wheel (an isolated venv is
+   fine):
+   ```bash
+   python3 -m venv .venv && .venv/bin/pip install "numpy<2" pandas TA-Lib
+   .venv/bin/python scripts/gen_indicator_golden.py > src/test_indicators_golden.zig
+   zig build test
+   ```
+   For deeper validation of the indicator stack (30 days of synthetic ticks,
+   every binding, fuzzing, performance) run the stress harness; it keeps its
+   own venv in `.venv-stress` and writes `stress_report.md`:
+   ```bash
+   ./scripts/stress/run_overnight.sh --quick   # smoke run
+   ./scripts/stress/run_overnight.sh           # full run
    ```
 6. Commit your changes with a descriptive commit message
 7. Push to your fork:

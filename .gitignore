@@ -60,3 +60,24 @@ ehthumbs.db
 Icon?
 iTunes_Control/
 Thumbs.db
+b_*_test_indicators/
+b_*_test_indicators
+b_stress_test_data/
+stress_report*.md
+.venv-stress/
+b_*_test_storage/
+b_*_test_storage
+test_ind_db_*/
+test_storage_*/
+b_c_test_calendar/
+b_c_test_backtest/
+b_c_test_universe/
+test_calendar_db_*/
+test_universe_db_*/
+test_backtest_db_*/
+b_*_test_round4/
+b_*_test_round4
+
+# compiled Go test binaries (they embed absolute source paths)
+*.test
+bindings/go/hocdb.test
