@@ -40,6 +40,10 @@ pub fn build(b: *std.Build) void {
         // which requires us to specify a target.
         .target = target,
     });
+    // Library code (e.g. calendar.zig) uses the C allocator, so libc is
+    // required. Linking it here propagates to every artifact importing this
+    // module; on Linux it is not linked implicitly.
+    mod.link_libc = true;
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -107,6 +111,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -121,6 +126,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     exe_tests.root_module.addImport("hocdb", mod);
@@ -131,6 +137,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/test_integrity.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     integrity_tests.root_module.addImport("hocdb", mod);
@@ -145,6 +152,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/test_auto_increment.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     auto_inc_tests.root_module.addImport("hocdb", mod);
