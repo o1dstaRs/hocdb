@@ -1,6 +1,7 @@
 // Round 4: trading calendars, signal backtester and universe features.
 //   clang++ -std=c++17 bindings/cpp/test/test_round4.cpp -o test_binaries/test_cpp_round4 \
 //     -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib && ./test_binaries/test_cpp_round4
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
