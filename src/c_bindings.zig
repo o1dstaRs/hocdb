@@ -377,7 +377,7 @@ export fn hocdb_indicator_name(kind: u32) ?[*:0]const u8 {
 export fn hocdb_indicator_kind_from_name(name_z: [*:0]const u8) u32 {
     const name = std.mem.span(name_z);
     for (ind.all_kinds) |k| {
-        if (std.ascii.eqlIgnoreCase(name, @tagName(k))) return @intFromEnum(k);
+        if (std.ascii.eqlIgnoreCase(name, @tagName(k))) return @backingInt(k);
     }
     return 0;
 }
@@ -387,7 +387,7 @@ export fn hocdb_indicator_kinds(out: ?[*]u32, cap: usize) usize {
     if (out) |o| {
         for (ind.all_kinds, 0..) |k, i| {
             if (i >= cap) break;
-            o[i] = @intFromEnum(k);
+            o[i] = @backingInt(k);
         }
     }
     return ind.all_kinds.len;
@@ -452,7 +452,7 @@ export fn hocdb_summary_size() usize {
     return @sizeOf(ind.Summary);
 }
 export fn hocdb_summary_field_count() usize {
-    return @typeInfo(ind.Summary).@"struct".fields.len;
+    return @typeInfo(ind.Summary).@"struct".field_names.len;
 }
 export fn hocdb_summary_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(ind.Summary, idx);
@@ -464,7 +464,7 @@ export fn hocdb_snapshot_size() usize {
     return @sizeOf(ind.Snapshot);
 }
 export fn hocdb_snapshot_field_count() usize {
-    return @typeInfo(ind.Snapshot).@"struct".fields.len;
+    return @typeInfo(ind.Snapshot).@"struct".field_names.len;
 }
 export fn hocdb_snapshot_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(ind.Snapshot, idx);
@@ -481,22 +481,22 @@ export fn hocdb_snapshot_field_type(idx: usize) c_int {
 }
 
 fn structFieldName(comptime T: type, idx: usize) ?[*:0]const u8 {
-    inline for (@typeInfo(T).@"struct".fields, 0..) |f, i| {
-        if (i == idx) return f.name ++ "";
+    inline for (@typeInfo(T).@"struct".field_names, 0..) |f_name, i| {
+        if (i == idx) return f_name ++ "";
     }
     return null;
 }
 
 fn structFieldOffset(comptime T: type, idx: usize) usize {
-    inline for (@typeInfo(T).@"struct".fields, 0..) |f, i| {
-        if (i == idx) return @offsetOf(T, f.name);
+    inline for (@typeInfo(T).@"struct".field_names, 0..) |f_name, i| {
+        if (i == idx) return @offsetOf(T, f_name);
     }
     return 0;
 }
 
 fn structFieldType(comptime T: type, idx: usize) c_int {
-    inline for (@typeInfo(T).@"struct".fields, 0..) |f, i| {
-        if (i == idx) return switch (f.type) {
+    inline for (@typeInfo(T).@"struct".field_types, 0..) |f_type, i| {
+        if (i == idx) return switch (f_type) {
             i64 => 1,
             f64 => 2,
             u64 => 3,
@@ -614,7 +614,7 @@ export fn hocdb_health_size() usize {
     return @sizeOf(ind.Health);
 }
 export fn hocdb_health_field_count() usize {
-    return @typeInfo(ind.Health).@"struct".fields.len;
+    return @typeInfo(ind.Health).@"struct".field_names.len;
 }
 export fn hocdb_health_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(ind.Health, idx);
@@ -638,7 +638,7 @@ export fn hocdb_evaluation_size() usize {
     return @sizeOf(ind.Evaluation);
 }
 export fn hocdb_evaluation_field_count() usize {
-    return @typeInfo(ind.Evaluation).@"struct".fields.len;
+    return @typeInfo(ind.Evaluation).@"struct".field_names.len;
 }
 export fn hocdb_evaluation_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(ind.Evaluation, idx);
@@ -686,7 +686,7 @@ comptime {
     std.debug.assert(@sizeOf(CConfig) == 80);
 }
 
-threadlocal var last_error: [64]u8 = [_]u8{0} ** 64;
+threadlocal var last_error: [64]u8 = @as([64]u8, @splat(0));
 threadlocal var last_error_len: usize = 0;
 
 fn setLastError(name: []const u8) void {
@@ -862,7 +862,7 @@ export fn hocdb_metrics_size() usize {
     return @sizeOf(DB.Metrics);
 }
 export fn hocdb_metrics_field_count() usize {
-    return @typeInfo(DB.Metrics).@"struct".fields.len;
+    return @typeInfo(DB.Metrics).@"struct".field_names.len;
 }
 export fn hocdb_metrics_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(DB.Metrics, idx);
@@ -981,7 +981,7 @@ export fn hocdb_civil_from_days(days: i64, year: ?*i64, month: ?*u32, day: ?*u32
 export fn hocdb_calendar_define(name: ?[*:0]const u8, weekly: ?[*]const calendar.DaySession, utc_offset_sec: i32, dst_rule: c_int, holidays: ?[*]const i32, n_holidays: usize, early_closes: ?[*]const calendar.EarlyClose, n_early: usize, sessions_per_year: f64) i64 {
     const n = name orelse return 0;
     const w = weekly orelse return 0;
-    var tpl: [7]?calendar.DaySession = .{null} ** 7;
+    var tpl: [7]?calendar.DaySession = @splat(null);
     for (0..7) |i| {
         if (w[i].close_sec > w[i].open_sec) tpl[i] = w[i];
     }
@@ -1069,7 +1069,7 @@ export fn hocdb_universe_row_size() usize {
     return @sizeOf(universe.Row);
 }
 export fn hocdb_universe_row_field_count() usize {
-    return @typeInfo(universe.Row).@"struct".fields.len;
+    return @typeInfo(universe.Row).@"struct".field_names.len;
 }
 export fn hocdb_universe_row_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(universe.Row, idx);
@@ -1084,7 +1084,7 @@ export fn hocdb_universe_summary_size() usize {
     return @sizeOf(universe.Summary);
 }
 export fn hocdb_universe_summary_field_count() usize {
-    return @typeInfo(universe.Summary).@"struct".fields.len;
+    return @typeInfo(universe.Summary).@"struct".field_names.len;
 }
 export fn hocdb_universe_summary_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(universe.Summary, idx);
@@ -1170,7 +1170,7 @@ export fn hocdb_backtest_result_size() usize {
     return @sizeOf(backtest.Result);
 }
 export fn hocdb_backtest_result_field_count() usize {
-    return @typeInfo(backtest.Result).@"struct".fields.len;
+    return @typeInfo(backtest.Result).@"struct".field_names.len;
 }
 export fn hocdb_backtest_result_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(backtest.Result, idx);
@@ -1185,7 +1185,7 @@ export fn hocdb_trade_size() usize {
     return @sizeOf(backtest.Trade);
 }
 export fn hocdb_trade_field_count() usize {
-    return @typeInfo(backtest.Trade).@"struct".fields.len;
+    return @typeInfo(backtest.Trade).@"struct".field_names.len;
 }
 export fn hocdb_trade_field_name(idx: usize) ?[*:0]const u8 {
     return structFieldName(backtest.Trade, idx);

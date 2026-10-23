@@ -113,7 +113,7 @@ const napi_bigint64_array: c_int = 9;
 // --- Helper Functions ---
 
 fn throwError(env: napi_env, msg: []const u8) napi_value {
-    const msg_z = std.heap.c_allocator.dupeZ(u8, msg) catch return null;
+    const msg_z = std.heap.c_allocator.dupeSentinel(u8, msg, 0) catch return null;
     defer std.heap.c_allocator.free(msg_z);
     _ = napi_throw_error(env, null, msg_z);
     return null;
@@ -133,9 +133,9 @@ fn getArgs(env: napi_env, info: napi_callback_info, comptime N: usize) ![N]napi_
 
 /// Throw an Error with `code` (the Zig error name) and the given message.
 fn throwCoded(env: napi_env, code: []const u8, msg: []const u8) napi_value {
-    const code_z = std.heap.c_allocator.dupeZ(u8, code) catch return null;
+    const code_z = std.heap.c_allocator.dupeSentinel(u8, code, 0) catch return null;
     defer std.heap.c_allocator.free(code_z);
-    const msg_z = std.heap.c_allocator.dupeZ(u8, msg) catch return null;
+    const msg_z = std.heap.c_allocator.dupeSentinel(u8, msg, 0) catch return null;
     defer std.heap.c_allocator.free(msg_z);
     _ = napi_throw_error(env, code_z, msg_z);
     return null;
@@ -345,7 +345,7 @@ fn cfgFsync(env: napi_env, obj: napi_value, out: *DB.FsyncPolicy) error{Thrown}!
     } else |_| {}
     var x: i64 = -1;
     if (!readI64(env, v, &x) or x < 0 or x > 3) return cfgFail(env, "fsync", what);
-    out.* = @enumFromInt(@as(u8, @intCast(x)));
+    out.* = @fromBackingInt(@intCast(@as(u8, @intCast(x))));
 }
 
 /// Fill `config` from a JS options object (snake_case or camelCase keys); throws on bad values.
@@ -868,16 +868,16 @@ fn makeTypedArray(env: napi_env, comptime T: type, data: []const T) !napi_value 
 fn structToObject(env: napi_env, comptime T: type, value: T) napi_value {
     var obj: napi_value = undefined;
     if (napi_create_object(env, &obj) != .ok) return throwError(env, "Failed to create result object");
-    inline for (@typeInfo(T).@"struct".fields) |f| {
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |f_name, f_type| {
         var v: napi_value = undefined;
-        const x = @field(value, f.name);
-        switch (f.type) {
+        const x = @field(value, f_name);
+        switch (f_type) {
             i64 => _ = napi_create_bigint_int64(env, x, &v),
             u64 => _ = napi_create_bigint_uint64(env, x, &v),
             f64 => _ = napi_create_double(env, x, &v),
             else => @compileError("unsupported field type in " ++ @typeName(T)),
         }
-        setProp(env, obj, f.name, v);
+        setProp(env, obj, f_name, v);
     }
     return obj;
 }
@@ -1320,7 +1320,7 @@ fn indicatorRegistry(env: napi_env, info: napi_callback_info) callconv(.c) napi_
     for (ind.all_kinds, 0..) |kind, i| {
         var entry: napi_value = undefined;
         if (napi_create_object(env, &entry) != .ok) return throwError(env, "Failed to create object");
-        setProp(env, entry, "id", makeNumber(env, @floatFromInt(@intFromEnum(kind))));
+        setProp(env, entry, "id", makeNumber(env, @floatFromInt(@backingInt(kind))));
         setProp(env, entry, "name", makeString(env, ind.kindName(kind)));
         const names = ind.outputNames(kind);
         var outputs: napi_value = undefined;
@@ -1745,7 +1745,7 @@ fn calendarDefine(env: napi_env, info: napi_callback_info) callconv(.c) napi_val
     const weekly = readI64Array(env, args[1], allocator) catch return throwError(env, "calendarDefine: weekly must be an array of 14 integers (open, close per weekday)");
     defer allocator.free(weekly);
     if (weekly.len != 14) return throwError(env, "calendarDefine: weekly must have 7 entries (Monday first)");
-    var tpl: [7]?cal.DaySession = .{null} ** 7;
+    var tpl: [7]?cal.DaySession = @splat(null);
     for (0..7) |i| {
         const o = toI32(weekly[2 * i]) orelse return throwError(env, "calendarDefine: session seconds out of range");
         const c = toI32(weekly[2 * i + 1]) orelse return throwError(env, "calendarDefine: session seconds out of range");

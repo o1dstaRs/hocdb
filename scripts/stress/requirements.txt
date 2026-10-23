@@ -1,0 +1,5 @@
+# Reference versions define the existing indicator conventions.
+numpy==1.26.4
+pandas==2.2.3
+TA-Lib==0.7.1
+exchange_calendars==4.13.2

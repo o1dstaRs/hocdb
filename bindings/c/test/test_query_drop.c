@@ -47,7 +47,7 @@ static void rm_rf(const char *path) {
 int test_query() {
     printf("Testing query()...\n");
 
-    const char *test_dir = "../../../b_c_test_query";
+    const char *test_dir = "b_c_test_data/query";
     rm_rf(test_dir);
 
     CField schema[] = {
@@ -182,7 +182,7 @@ int test_query() {
 int test_drop() {
     printf("Testing drop()...\n");
 
-    const char *test_dir = "../../../b_c_test_drop";
+    const char *test_dir = "b_c_test_data/drop";
     rm_rf(test_dir);
 
     CField schema[] = {

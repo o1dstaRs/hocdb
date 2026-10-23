@@ -127,3 +127,14 @@ Tests: `src/test_storage.zig`, `bindings/c/test/test_storage.c`, each binding's 
 - Tests: `test_calendar_db.zig`, `test_backtest.zig`, `test_backtest_db.zig`, `test_universe.zig`,
   `test_universe_db.zig`, C tests `test_calendar.c` / `test_backtest.c` / `test_universe.c`, binding `test_round4.*`,
   harness phases "calendar", "backtest", "universe".
+
+### Zig 0.17 toolchain and reproducible validation
+- The compiler is pinned to 0.17.0 in `.zig-version` and `build.zig.zon`. Use `./scripts/zig.sh` when the system Zig has another version; it verifies the official archive SHA256 and caches the compiler without replacing the system installation.
+- `root.zig` imports every core test. The build runs that suite once; separate integrity / auto-increment executables previously ran the same suite three times.
+- `verify_all.sh` runs every standalone binding regression suite and the Go package. Set `VERIFY_OPTIMIZE=ReleaseSafe` or `ReleaseFast` to check those modes, `GO` for a Go executable, and `PYTHON` for Python.
+- Reference validation uses Python 3.12 and `scripts/stress/requirements.txt`. TA-Lib 0.7.1 preserves the documented indicator conventions; later TA-Lib versions change MFI. Use `STRESS_PYTHON` when creating a venv or `STRESS_VENV` for an existing one.
+- `scripts/compare_performance.py` alternates identical fixed workloads against two ReleaseFast libraries. `scripts/check_format_compatibility.py` checks bidirectional reopen / append compatibility.
+- Zig callers can provide caller-owned `std.Io` through `initWithIo` / `openReaderWithIo`. Its lifetime must extend through database deinitialization. Default embedding APIs use synchronous I/O without installing a worker pool or signal handlers.
+- Keep sparse indexes disabled for wrapped files, including a wrap that happens during the final flush. Tests in `test_migration.zig` cover this boundary, rejected appends, allocation failures, padded typed records, and maximum timestamps.
+- Writer initialization checks that a conflicting exclusive lock is actually refused. Filesystems that falsely report success return `FileLocksUnsupported`; Docker Desktop shared-folder behavior was reproduced during validation. Linux database tests must use a Linux filesystem or Docker volume rather than that host bind mount.
+- The auto-increment scratch path uses 256 stack bytes for common records, with an allocation fallback for larger records; the large-record/failed-allocation regression must stay green. Avoid reserving a full page on every append, and skip sparse-index arithmetic for auto-increment and wrapped files.

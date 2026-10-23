@@ -74,13 +74,13 @@ test "tied example matches the Python reference" {
     try approx(95.9499760125, trades[0].exit_price, 1e-9);
     try approx(-5.297524463512502, trades[0].pnl, 1e-9);
     try testing.expectEqual(@as(u64, 2), trades[0].bars);
-    try testing.expectEqual(@intFromEnum(bt.ExitReason.stop_loss), trades[0].exit_reason);
+    try testing.expectEqual(@backingInt(bt.ExitReason.stop_loss), trades[0].exit_reason);
     try testing.expectEqual(@as(i64, 7), trades[1].entry_ts);
     try approx(2.0, trades[1].size, 1e-12);
     try approx(0.02724396892462866, trades[1].ret, 1e-12);
     try testing.expectEqual(@as(i64, -1), trades[2].direction);
     try testing.expectEqual(@as(i64, 0), trades[2].exit_ts);
-    try testing.expectEqual(@intFromEnum(bt.ExitReason.end_of_data), trades[2].exit_reason);
+    try testing.expectEqual(@backingInt(bt.ExitReason.end_of_data), trades[2].exit_reason);
     try approx(2.3470510000000075, trades[2].pnl, 1e-9);
     // position outputs: stopped at bar 3, re-entered at bar 6 with 2 units, flipped to -1 at bar 9
     try approx(1.0, position[1], 0);
@@ -94,7 +94,7 @@ test "flat target: no trades, constant equity" {
     var cb: [50]f64 = undefined;
     const ts = seq(50, &tb);
     const close = ramp(50, 100, 0.5, &cb);
-    const target = [_]f64{0} ** 50;
+    const target = @as([50]f64, @splat(0));
     const r = try bt.run(ts, null, null, null, close, &target, .{ .initial_equity = 10 }, .{}, null, testing.allocator);
     try testing.expectEqual(@as(u64, 0), r.n_trades);
     try approx(10, r.final_equity, 0);
@@ -112,7 +112,7 @@ test "always long with full equity and no costs equals buy-and-hold from the fir
     const ts = seq(40, &tb);
     const close = ramp(40, 100, 1.5, &cb);
     const open = ramp(40, 99.5, 1.5, &ob);
-    const target = [_]f64{1.0} ** 40;
+    const target = @as([40]f64, @splat(1.0));
     const r = try bt.run(ts, open, null, null, close, &target, .{ .initial_equity = 500, .position_mode = 1 }, .{}, null, testing.allocator);
     try testing.expectEqual(@as(u64, 1), r.n_trades);
     try approx(close[39] / open[1] - 1.0, r.total_return, 1e-12);
@@ -142,7 +142,7 @@ test "flip long to short: two trades with correctly signed slippage" {
     try testing.expectEqual(@as(i64, 7), trades[1].entry_ts);
     try approx(open[6] * 0.999, trades[1].entry_price, 1e-12);
     try testing.expectEqual(@as(i64, -1), trades[1].direction);
-    try testing.expectEqual(@intFromEnum(bt.ExitReason.end_of_data), trades[1].exit_reason);
+    try testing.expectEqual(@backingInt(bt.ExitReason.end_of_data), trades[1].exit_reason);
     try approx(trades[0].pnl + trades[1].pnl, r.net_pnl, 1e-9);
     try approx(0.9, r.exposure, 1e-12); // bars 1..9 carry a position
 }
@@ -245,7 +245,7 @@ test "walk-forward splits and runSplits" {
     var cb: [100]f64 = undefined;
     const ts = seq(100, &tb);
     const close = ramp(100, 100, 0.25, &cb);
-    const target = [_]f64{1} ** 100;
+    const target = @as([100]f64, @splat(1));
     var results: [4]bt.Result = undefined;
     const k = try bt.runSplits(ts, null, null, null, close, &target, .{ .fill_mode = 1, .position_mode = 1 }, out[0..4], &results, testing.allocator);
     try testing.expectEqual(@as(usize, 4), k);

@@ -762,12 +762,12 @@ test "golden summary vs numpy" {
     const a = std.testing.allocator;
     const s = try ind.summary(&close, 252, a);
     var failures: usize = 0;
-    inline for (@typeInfo(ind.Summary).@"struct".fields) |f| {
+    inline for (@typeInfo(ind.Summary).@"struct".field_names, @typeInfo(ind.Summary).@"struct".field_types) |f_name, f_type| {
         for (summary_expected) |e| {
-            if (std.mem.eql(u8, e.name, f.name)) {
-                const got: f64 = if (f.type == u64) @floatFromInt(@field(s, f.name)) else @field(s, f.name);
+            if (std.mem.eql(u8, e.name, f_name)) {
+                const got: f64 = if (f_type == u64) @floatFromInt(@field(s, f_name)) else @field(s, f_name);
                 if (!closeEnough(got, e.value, 1e-7)) {
-                    std.debug.print("summary.{s}: got {e} want {e}\\n", .{ f.name, got, e.value });
+                    std.debug.print("summary.{s}: got {e} want {e}\\n", .{ f_name, got, e.value });
                     failures += 1;
                 }
             }

@@ -39,6 +39,10 @@ async function runTest() {
         if (stats.count !== BigInt(count)) {
             throw new Error(`Expected stats count ${count}, got ${stats.count}`);
         }
+        const percentiles = await db.getStats(0, count, "value", true);
+        if (percentiles.p50 !== (count / 2) * 1.1 || percentiles.p99 !== (count * 0.99) * 1.1) {
+            throw new Error(`Async percentile flag was lost: ${percentiles.p50}, ${percentiles.p99}`);
+        }
 
         await db.drop();
         db = null; // Prevent double close

@@ -1,0 +1,1 @@
+PASS: both directions, three opens each, linear/ring/auto-increment, CRC and calendar metadata

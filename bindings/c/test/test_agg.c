@@ -19,7 +19,7 @@ int main() {
         {"value", HOCDB_TYPE_F64}
     };
     
-    HOCDBHandle db = hocdb_init("TEST_C_AGG", "b_c_test_data/agg", schema, 2, 1024*1024, 1, 1);
+    HOCDBHandle db = hocdb_init("TEST_C_AGG", "b_c_test_data/agg", schema, 2, 1024*1024, 1, 1, 0);
     if (!db) return 1;
     
     printf("Appending data...\n");
@@ -45,7 +45,7 @@ int main() {
     
     printf("Testing getStats...\n");
     HOCDBStats stats;
-    if (hocdb_get_stats(db, 0, 400, 1, &stats) != 0) {
+    if (hocdb_get_stats(db, 0, 400, 1, 0, &stats) != 0) {
         printf("getStats failed\n");
         return 1;
     }

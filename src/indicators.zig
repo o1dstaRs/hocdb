@@ -454,7 +454,7 @@ pub fn emaMulti(input: []const f64, periods: []const usize, outs: []const []f64)
     var kv: V = splat(0);
     var state: V = splat(0);
     var max_period: usize = 0;
-    var kv_arr: [lanes]f64 = [_]f64{0} ** lanes;
+    var kv_arr: [lanes]f64 = @as([lanes]f64, @splat(0));
     for (periods, 0..) |p, j| {
         if (p == 0) return Error.InvalidPeriod;
         if (outs[j].len != n) return Error.LengthMismatch;
@@ -465,8 +465,8 @@ pub fn emaMulti(input: []const f64, periods: []const usize, outs: []const []f64)
     // Seed each lane independently (SMA of first period values), then run the
     // shared recurrence from max_period onward; lanes with shorter periods
     // are advanced scalar-wise until all lanes are live.
-    var seeded: [lanes]bool = [_]bool{false} ** lanes;
-    var st_arr: [lanes]f64 = [_]f64{0} ** lanes;
+    var seeded: [lanes]bool = @as([lanes]bool, @splat(false));
+    var st_arr: [lanes]f64 = @as([lanes]f64, @splat(0));
     for (periods, 0..) |p, j| {
         fillNan(outs[j]);
         if (p > n) continue;
@@ -2339,8 +2339,8 @@ pub const Summary = extern struct {
 
 fn nanSummary() Summary {
     var s: Summary = undefined;
-    inline for (@typeInfo(Summary).@"struct".fields) |f| {
-        if (f.type == f64) @field(s, f.name) = nan;
+    inline for (@typeInfo(Summary).@"struct".field_names, @typeInfo(Summary).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64) @field(s, f_name) = nan;
     }
     s.count = 0;
     return s;
@@ -3488,7 +3488,7 @@ pub const Kind = enum(u32) {
     _,
 
     pub fn fromInt(v: u32) ?Kind {
-        const k: Kind = @enumFromInt(v);
+        const k: Kind = @fromBackingInt(@intCast(v));
         return switch (k) {
             .sma, .ema, .wma, .dema, .tema, .trima, .kama, .hma, .zlema, .vwma, .rma, .rsi, .macd, .ppo, .stoch, .stoch_rsi, .cci, .willr, .mom, .roc, .cmo, .trix, .ultosc, .ao, .tsi, .bop, .dpo, .adx, .aroon, .psar, .supertrend, .vortex, .ichimoku, .linreg, .atr, .natr, .true_range, .bbands, .keltner, .donchian, .stddev, .variance, .hist_vol, .obv, .vwap, .mfi, .cmf, .ad, .adosc, .efi, .returns, .log_returns, .zscore, .percent_rank, .rolling_min, .rolling_max, .drawdown, .sharpe, .sortino, .correl, .beta, .skew, .kurtosis, .typical_price, .median_price, .heikin_ashi, .spread, .order_flow, .tick_pressure, .trade_intensity, .amihud, .realized_vol, .series, .series2, .ratio, .ratio_zscore, .rel_strength, .forward_return, .triple_barrier, .session_vwap, .session_range, .opening_range, .pivots => k,
             _ => null,
@@ -4080,8 +4080,8 @@ fn last(s: []const f64) f64 {
 pub fn snapshot(ts: []const i64, open: ?[]const f64, high: ?[]const f64, low: ?[]const f64, close: []const f64, volume: ?[]const f64, periods_per_year: f64, allocator: Allocator) Error!Snapshot {
     const n = close.len;
     var s: Snapshot = undefined;
-    inline for (@typeInfo(Snapshot).@"struct".fields) |f| {
-        if (f.type == f64) @field(s, f.name) = nan;
+    inline for (@typeInfo(Snapshot).@"struct".field_names, @typeInfo(Snapshot).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64) @field(s, f_name) = nan;
     }
     s.timestamp = if (n > 0) ts[n - 1] else 0;
     s.bars = n;

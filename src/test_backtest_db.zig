@@ -1,6 +1,7 @@
 //! DB-level tests for backtest() / backtestTail(): window semantics equal to
 //! ohlcv() and results equal to the kernel on the same bars.
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const ind = hocdb.indicators;
 const bt = hocdb.backtest_mod;
@@ -17,15 +18,15 @@ const schema = hocdb.Schema{ .fields = &[_]hocdb.FieldInfo{
 const cols = DB.IndicatorColumns{ .close = 1, .volume = 2 };
 
 fn tmpDir(buf: []u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "test_backtest_db_{x}", .{std.crypto.random.int(u64)});
+    return std.fmt.bufPrint(buf, "test_backtest_db_{x}", .{runtime.randomInt(u64)});
 }
 
 test "backtest on bucketed bars equals the kernel on ohlcv() bars; tail and errors" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    var db = try DB.init("BT", dir, a, schema, .{ .calendar = @intFromEnum(hocdb.calendar.Id.crypto), .timestamp_unit_ns = 1_000_000_000 });
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
+    var db = try DB.init("BT", dir, a, schema, .{ .calendar = @backingInt(hocdb.calendar.Id.crypto), .timestamp_unit_ns = 1_000_000_000 });
     try db.initWriter();
     defer db.deinit();
     var prng = std.Random.DefaultPrng.init(5);

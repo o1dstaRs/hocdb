@@ -2,6 +2,7 @@
 //! checksums, fsync policies, compaction / retention / rollover, legacy
 //! migration and metrics.
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const DB = hocdb.DynamicTimeSeriesDB;
 
@@ -13,7 +14,7 @@ const schema = hocdb.Schema{ .fields = &[_]hocdb.FieldInfo{
 const RS: u64 = 16;
 
 fn tmpDir(buf: []u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "test_storage_{x}", .{std.crypto.random.int(u64)});
+    return std.fmt.bufPrint(buf, "test_storage_{x}", .{runtime.randomInt(u64)});
 }
 
 // The writer keeps pointers into its own struct, so databases live on the heap.
@@ -53,7 +54,7 @@ fn filePath(buf: []u8, dir: []const u8) ![]const u8 {
 test "v2 header round trip and committed cursor" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     {
         const db = try open(dir, .{});
         defer close(db);
@@ -80,7 +81,7 @@ test "v2 header round trip and committed cursor" {
 test "crash recovery: uncommitted tail is adopted when valid, torn or misordered bytes are dropped" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var path_buf: [128]u8 = undefined;
     const path = try filePath(&path_buf, dir);
     {
@@ -92,17 +93,17 @@ test "crash recovery: uncommitted tail is adopted when valid, torn or misordered
     // simulate a crash after the data write but before the header commit:
     // append 3 valid records, then a torn half record
     {
-        const f = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
-        defer f.close();
-        const st = try f.stat();
+        const f = try std.Io.Dir.cwd().openFile(runtime.io, path, .{ .mode = .read_write });
+        defer f.close(runtime.io);
+        const st = try f.stat(runtime.io);
         var pos = st.size;
         var i: i64 = 6;
         while (i <= 8) : (i += 1) {
             const r = Rec{ .timestamp = i, .value = 0 };
-            try f.pwriteAll(std.mem.asBytes(&r), pos);
+            try f.writePositionalAll(runtime.io, std.mem.asBytes(&r), pos);
             pos += RS;
         }
-        try f.pwriteAll(&[_]u8{ 1, 2, 3, 4, 5, 6, 7 }, pos);
+        try f.writePositionalAll(runtime.io, &[_]u8{ 1, 2, 3, 4, 5, 6, 7 }, pos);
     }
     {
         const db = try open(dir, .{});
@@ -112,7 +113,7 @@ test "crash recovery: uncommitted tail is adopted when valid, torn or misordered
         const m = db.getMetrics();
         try std.testing.expectEqual(@as(u64, 3), m.recovered_tail_records);
         try std.testing.expectEqual(@as(u64, 7), m.dropped_tail_bytes);
-        const st = try db.file.stat();
+        const st = try db.file.stat(runtime.io);
         try std.testing.expectEqual(DB.HEADER_SIZE + 8 * RS, st.size);
         try db.flush(); // re-commits with the adopted records and a rebuilt checksum
         try std.testing.expectEqual(DB.HEADER_SIZE + 8 * RS, (try db.headerInfo()).committed_cursor);
@@ -121,11 +122,11 @@ test "crash recovery: uncommitted tail is adopted when valid, torn or misordered
     }
     // misordered record beyond the commit is dropped
     {
-        const f = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
-        defer f.close();
-        const st = try f.stat();
+        const f = try std.Io.Dir.cwd().openFile(runtime.io, path, .{ .mode = .read_write });
+        defer f.close(runtime.io);
+        const st = try f.stat(runtime.io);
         const bad = Rec{ .timestamp = 3, .value = 0 };
-        try f.pwriteAll(std.mem.asBytes(&bad), st.size);
+        try f.writePositionalAll(runtime.io, std.mem.asBytes(&bad), st.size);
     }
     const db = try open(dir, .{});
     defer close(db);
@@ -137,7 +138,7 @@ test "crash recovery: uncommitted tail is adopted when valid, torn or misordered
 test "lock-free readers follow the writer; second writer is refused" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     const w = try open(dir, .{});
     defer close(w);
     try appendN(w, 1, 100);
@@ -175,7 +176,7 @@ test "lock-free readers follow the writer; second writer is refused" {
     try std.testing.expectEqual(@as(usize, 10 * RS), q2.len);
     try std.testing.expect(r.sparse_index.items.len >= 3);
     // indicators work on the reader
-    const specs = [_]hocdb.indicators.Spec{.{ .kind = @intFromEnum(hocdb.indicators.Kind.sma), .period = 5 }};
+    const specs = [_]hocdb.indicators.Spec{.{ .kind = @backingInt(hocdb.indicators.Kind.sma), .period = 5 }};
     const res = try r.indicatorsTail(3, .{ .close = 1 }, &specs, DB.lookback_auto, 0, std.testing.allocator);
     defer res.deinit();
     try std.testing.expectEqual(@as(usize, 3), res.n_rows);
@@ -192,7 +193,7 @@ test "lock-free readers follow the writer; second writer is refused" {
 test "readers follow a ring buffer across the wrap" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     const w = try open(dir, .{ .max_file_size = DB.HEADER_SIZE + 50 * RS, .overwrite_on_full = true });
     defer close(w);
     try appendN(w, 1, 30);
@@ -216,7 +217,7 @@ test "readers follow a ring buffer across the wrap" {
 test "fsync policies and metrics" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     {
         const db = try open(dir, .{ .fsync = .on_flush });
         defer close(db);
@@ -268,7 +269,7 @@ test "fsync policies and metrics" {
 test "checksum detects corruption; verify_on_open refuses a corrupted file" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var path_buf: [128]u8 = undefined;
     const path = try filePath(&path_buf, dir);
     {
@@ -288,12 +289,12 @@ test "checksum detects corruption; verify_on_open refuses a corrupted file" {
     }
     // flip one byte in the middle of the data
     {
-        const f = try std.fs.cwd().openFile(path, .{ .mode = .read_write });
-        defer f.close();
+        const f = try std.Io.Dir.cwd().openFile(runtime.io, path, .{ .mode = .read_write });
+        defer f.close(runtime.io);
         var b: [1]u8 = undefined;
-        _ = try f.preadAll(&b, DB.HEADER_SIZE + 500 * RS + 9);
+        _ = try f.readPositionalAll(runtime.io, &b, DB.HEADER_SIZE + 500 * RS + 9);
         b[0] ^= 0x55;
-        try f.pwriteAll(&b, DB.HEADER_SIZE + 500 * RS + 9);
+        try f.writePositionalAll(runtime.io, &b, DB.HEADER_SIZE + 500 * RS + 9);
     }
     try std.testing.expectError(error.ChecksumMismatch, DB.init("T", dir, std.testing.allocator, schema, .{ .verify_on_open = true }));
     const db = try open(dir, .{});
@@ -313,7 +314,7 @@ test "checksum detects corruption; verify_on_open refuses a corrupted file" {
 test "compaction, retention and readers following a rewritten file" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var w = try open(dir, .{});
     defer close(w);
     try appendN(w, 1, 5000);
@@ -359,7 +360,7 @@ test "compaction, retention and readers following a rewritten file" {
 test "rollover archives the file and continues; auto rollover by size" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var w = try open(dir, .{});
     defer close(w);
     try appendN(w, 1, 100);
@@ -405,21 +406,21 @@ test "rollover archives the file and continues; auto rollover by size" {
 test "legacy HOC1 files are migrated on the first writer open (linear and wrapped)" {
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
-    try std.fs.cwd().makePath(dir);
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(runtime.io, dir);
     var path_buf: [128]u8 = undefined;
     const path = try filePath(&path_buf, dir);
     // hand-made legacy file: "HOC1" + schema hash + 20 records
     {
-        const f = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer f.close();
-        try f.writeAll("HOC1");
+        const f = try std.Io.Dir.cwd().createFile(runtime.io, path, .{ .truncate = true });
+        defer f.close(runtime.io);
+        try f.writeStreamingAll(runtime.io, "HOC1");
         const hash = schema.computeHash();
-        try f.writeAll(std.mem.asBytes(&hash));
+        try f.writeStreamingAll(runtime.io, std.mem.asBytes(&hash));
         var i: i64 = 1;
         while (i <= 20) : (i += 1) {
             const rec = Rec{ .timestamp = i, .value = @floatFromInt(i) };
-            try f.writeAll(std.mem.asBytes(&rec));
+            try f.writeStreamingAll(runtime.io, std.mem.asBytes(&rec));
         }
     }
     try std.testing.expectError(error.LegacyFormatNeedsMigration, DB.openReader("T", dir, std.testing.allocator, schema));
@@ -440,19 +441,19 @@ test "legacy HOC1 files are migrated on the first writer open (linear and wrappe
     // wrapped legacy ring buffer (capacity 5, records 3..7 written after 1..5 wrapped): physical order 6,7,3,4,5
     var dir2_buf: [64]u8 = undefined;
     const dir2 = try tmpDir(&dir2_buf);
-    defer std.fs.cwd().deleteTree(dir2) catch {};
-    try std.fs.cwd().makePath(dir2);
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir2) catch {};
+    try std.Io.Dir.cwd().createDirPath(runtime.io, dir2);
     var path2_buf: [128]u8 = undefined;
     const path2 = try filePath(&path2_buf, dir2);
     {
-        const f = try std.fs.cwd().createFile(path2, .{ .truncate = true });
-        defer f.close();
-        try f.writeAll("HOC1");
+        const f = try std.Io.Dir.cwd().createFile(runtime.io, path2, .{ .truncate = true });
+        defer f.close(runtime.io);
+        try f.writeStreamingAll(runtime.io, "HOC1");
         const hash = schema.computeHash();
-        try f.writeAll(std.mem.asBytes(&hash));
+        try f.writeStreamingAll(runtime.io, std.mem.asBytes(&hash));
         for ([_]i64{ 6, 7, 3, 4, 5 }) |t| {
             const rec = Rec{ .timestamp = t, .value = @floatFromInt(t) };
-            try f.writeAll(std.mem.asBytes(&rec));
+            try f.writeStreamingAll(runtime.io, std.mem.asBytes(&rec));
         }
     }
     var db2 = try DB.init("T", dir2, std.testing.allocator, schema, .{ .max_file_size = 12 + 5 * RS, .overwrite_on_full = true });

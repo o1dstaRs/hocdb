@@ -48,7 +48,7 @@ parentPort.on('message', (msg) => {
                 result = get(dbId).load();
                 break;
             case 'getStats':
-                result = get(dbId).getStats(payload.start, payload.end, payload.field_index);
+                result = get(dbId).getStats(payload.start, payload.end, payload.field_index, payload.compute_percentiles);
                 break;
             case 'getLatest':
                 result = get(dbId).getLatest(payload.field_index);

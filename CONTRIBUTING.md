@@ -34,7 +34,7 @@ Have an idea for a new feature? See [Suggesting Features](#suggesting-features).
 ## Development Setup
 
 ### Prerequisites
-- **Zig 0.15.2** - The entire project is written in Zig
+- **Zig 0.17.0** - The entire project is written in Zig
 - Git
 - A modern terminal/shell
 
@@ -67,7 +67,7 @@ Have an idea for a new feature? See [Suggesting Features](#suggesting-features).
    a Python with `numpy<2`, `pandas` and the `TA-Lib` wheel (an isolated venv is
    fine):
    ```bash
-   python3 -m venv .venv && .venv/bin/pip install "numpy<2" pandas TA-Lib
+   python3.12 -m venv .venv && .venv/bin/pip install numpy==1.26.4 pandas==2.2.3 TA-Lib==0.7.1
    .venv/bin/python scripts/gen_indicator_golden.py > src/test_indicators_golden.zig
    zig build test
    ```
@@ -78,6 +78,22 @@ Have an idea for a new feature? See [Suggesting Features](#suggesting-features).
    ./scripts/stress/run_overnight.sh --quick   # smoke run
    ./scripts/stress/run_overnight.sh           # full run
    ```
+   The reference environment uses Python 3.12 and the exact packages in
+   `scripts/stress/requirements.txt`. Set `STRESS_PYTHON=/path/to/python3.12`
+   when creating it, or `STRESS_VENV=/path/to/venv` to use an existing one.
+   TA-Lib is pinned to 0.7.1 because later versions change indicator semantics.
+   Both libraries are built in ReleaseFast for stress timings.
+
+   For controlled performance comparisons, build both revisions' C libraries
+   with `-Doptimize=ReleaseFast`, then run:
+   ```bash
+   python3 scripts/compare_performance.py --baseline /old/zig-out/lib --runs 5 --output performance.json
+   python3 scripts/check_format_compatibility.py --baseline /old/zig-out/lib/libhocdb_c.dylib --candidate zig-out/lib/libhocdb_c.dylib
+   ```
+   The fixed-work comparison alternates revisions and reports medians, checks
+   result checksums, and fails on an overall regression or any median slowdown
+   greater than 10%. The compatibility check covers reading and appending files
+   across versions in both directions. On Linux, use the `.so` library name.
 6. Commit your changes with a descriptive commit message
 7. Push to your fork:
    ```bash
@@ -139,7 +155,7 @@ Example:
 
 > **Bug: Write performance degrades significantly after X hours of continuous usage**
 > 
-> Environment: Zig 0.15.2, macOS 14, M2 Pro
+> Environment: Zig 0.17.0, macOS 14, M2 Pro
 > 
 > Steps to reproduce:
 > 1. Initialize a new database

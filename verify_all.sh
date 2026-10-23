@@ -1,111 +1,54 @@
 #!/bin/bash
-set -e
+# Exercise every standalone binding regression suite with one consistent build.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+ZIG="${ZIG:-$ROOT/scripts/zig.sh}"
+GO="${GO:-go}"
+PYTHON="${PYTHON:-python3}"
+OPTIMIZE="${VERIFY_OPTIMIZE:-Debug}"
 
-echo "========================================"
-echo "HOCDB Bindings Verification Script"
-echo "========================================"
-
-# 1. Build C Bindings
-echo ""
-echo "[1/8] Building C Bindings (Zig)..."
-zig build c-bindings
-echo "✅ C Bindings built"
-
-# 2. Run Bun Tests
-echo ""
-echo "[2/8] Running Bun Tests..."
-bun run bindings/bun/test/test.ts
-bun run bindings/bun/test/test_async_drop.ts
-bun run bindings/bun/test/test_indicators.ts
-bun run bindings/bun/test/test_storage.ts
-bun run bindings/bun/test/test_round4.ts
-echo "✅ Bun Tests passed"
-
-# 3. Run Python Tests
-echo ""
-echo "[3/8] Running Python Tests..."
-export PYTHONPATH=$(pwd)/bindings/python:$PYTHONPATH
-python3 bindings/python/test/test_query.py
-python3 bindings/python/test/test_indicators.py
-python3 bindings/python/test/test_storage.py
-python3 bindings/python/test/test_round4.py
-echo "✅ Python Tests passed"
-
-# 4. Run Go Tests
-echo ""
-echo "[4/8] Running Go Tests..."
-export DYLD_LIBRARY_PATH=$(pwd)/zig-out/lib:$DYLD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH
-(cd bindings/go && go test -v ./test/...)
-echo "✅ Go Tests passed"
-
-# 5. Run C++ ABI Tests (testing C header from C++)
-echo ""
-echo "[5/8] Running C++ ABI Tests..."
-mkdir -p test_binaries
-clang++ -std=c++17 bindings/c/test/test_cpp.cpp -o test_binaries/test_cpp_verify -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_verify
-rm test_binaries/test_cpp_verify
-clang++ -std=c++17 bindings/c/test/test_filter_syntax.cpp -o test_binaries/test_cpp_filter -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_filter
-rm test_binaries/test_cpp_filter
-echo "✅ C++ ABI Tests passed"
-
-# 6. Run C++ Wrapper Tests (testing C++ wrapper)
-echo ""
-echo "[6/8] Running C++ Wrapper Tests..."
-clang++ -std=c++17 bindings/cpp/test/test.cpp -o test_binaries/test_cpp_wrapper -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_wrapper
-rm test_binaries/test_cpp_wrapper
-clang++ -std=c++17 bindings/cpp/test/test_indicators.cpp -o test_binaries/test_cpp_indicators -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_indicators
-rm test_binaries/test_cpp_indicators
-clang++ -std=c++17 bindings/cpp/test/test_storage.cpp -o test_binaries/test_cpp_storage -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_storage
-rm test_binaries/test_cpp_storage
-clang++ -std=c++17 bindings/cpp/test/test_round4.cpp -o test_binaries/test_cpp_round4 -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_cpp_round4
-rm test_binaries/test_cpp_round4
-echo "✅ C++ Wrapper Tests passed"
-
-# 7. Run C Recovery and Filter Tests
-echo ""
-echo "[7/8] Running C Tests..."
-mkdir -p test_binaries
-clang -o test_binaries/test_auto_inc_recovery bindings/c/test/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_auto_inc_recovery
-rm test_binaries/test_auto_inc_recovery
-clang -o test_binaries/test_c_filter bindings/c/test/test_filter_syntax.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/test_c_filter
-rm test_binaries/test_c_filter
-clang -o test_binaries/simple_test bindings/c/test/simple_test.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-./test_binaries/simple_test
-rm test_binaries/simple_test
-clang -o test_binaries/test_c_indicators bindings/c/test/test_indicators.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-./test_binaries/test_c_indicators
-rm test_binaries/test_c_indicators
-clang -o test_binaries/test_c_storage bindings/c/test/test_storage.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-./test_binaries/test_c_storage
-rm test_binaries/test_c_storage
-for t in calendar backtest universe; do
-  clang -o test_binaries/test_c_$t bindings/c/test/test_$t.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-  ./test_binaries/test_c_$t
-  rm test_binaries/test_c_$t
+for tool in "$ZIG" "$GO" "$PYTHON" bun node clang clang++; do
+    command -v "$tool" >/dev/null || { echo "Required verification tool missing: $tool" >&2; exit 1; }
 done
-echo "✅ C Tests passed"
 
-# 8. Run Node.js Tests
-echo ""
-echo "[8/8] Running Node.js Tests..."
-zig build bindings
-node bindings/node/test/test.js
-node bindings/node/test/test_async_drop.js
-node bindings/node/test/test_indicators.js
-node bindings/node/test/test_storage.js
-node bindings/node/test/test_round4.js
-echo "✅ Node.js Tests passed"
+export PYTHONPATH="$ROOT/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
+export DYLD_LIBRARY_PATH="$ROOT/zig-out/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$ROOT/zig-out/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+mkdir -p test_binaries
 
-echo ""
-echo "========================================"
-echo "🎉 ALL BINDINGS VERIFIED SUCCESSFULLY!"
-echo "========================================"
+"$ZIG" build c-bindings bindings -Doptimize="$OPTIMIZE"
+for suite in bindings/bun/test/test*.ts; do
+    echo "[Bun] $suite"
+    bun run "$suite"
+done
+for suite in bindings/python/test/test*.py; do
+    echo "[Python] $suite"
+    if [ "$suite" = bindings/python/test/test.py ]; then
+        "$PYTHON" "$suite" --no-benchmark
+    else
+        "$PYTHON" "$suite"
+    fi
+done
+(cd bindings/go && "$GO" test -count=1 -v ./test/...)
+
+for suite in bindings/c/test/*.c; do
+    case "$suite" in *bench*) continue ;; esac
+    binary="test_binaries/c_$(basename "$suite" .c)"
+    echo "[C] $suite"
+    clang -std=c11 -pthread "$suite" -o "$binary" -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,"$ROOT/zig-out/lib" -lm
+    "$binary"
+done
+for suite in bindings/c/test/*.cpp bindings/cpp/test/*.cpp; do
+    case "$suite" in *bench*) continue ;; esac
+    binary="test_binaries/cpp_$(basename "$(dirname "$(dirname "$suite")")")_$(basename "$suite" .cpp)"
+    echo "[C++] $suite"
+    clang++ -std=c++17 "$suite" -o "$binary" -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,"$ROOT/zig-out/lib"
+    "$binary"
+done
+for suite in bindings/node/test/test*.js; do
+    echo "[Node] $suite"
+    node "$suite"
+done
+
+echo "ALL BINDINGS VERIFIED SUCCESSFULLY ($OPTIMIZE)"

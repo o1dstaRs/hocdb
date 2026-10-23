@@ -274,7 +274,7 @@ const Engine = struct {
         if (self.max_position > 0 and @abs(units) > self.max_position) {
             units = if (units > 0) self.max_position else -self.max_position;
         }
-        self.fill(i, price, units, @intFromEnum(ExitReason.signal));
+        self.fill(i, price, units, @backingInt(ExitReason.signal));
         self.applied = self.sig;
     }
 
@@ -353,7 +353,7 @@ const Engine = struct {
             if (idx < out.len) out[idx] = t;
         }
         self.has_trade = false;
-        if (reason == @intFromEnum(ExitReason.end_of_data)) return;
+        if (reason == @backingInt(ExitReason.end_of_data)) return;
         self.n_closed += 1;
         if (pnl > 0) {
             self.n_win += 1;
@@ -367,9 +367,9 @@ const Engine = struct {
         if (pnl > self.best_trade) self.best_trade = pnl;
         if (pnl < self.worst_trade) self.worst_trade = pnl;
         switch (reason) {
-            @intFromEnum(ExitReason.stop_loss) => self.n_sl += 1,
-            @intFromEnum(ExitReason.take_profit) => self.n_tp += 1,
-            @intFromEnum(ExitReason.trailing) => self.n_tr += 1,
+            @backingInt(ExitReason.stop_loss) => self.n_sl += 1,
+            @backingInt(ExitReason.take_profit) => self.n_tp += 1,
+            @backingInt(ExitReason.trailing) => self.n_tr += 1,
             else => {},
         }
     }
@@ -381,21 +381,21 @@ const Engine = struct {
         if (self.stop_loss > 0) {
             const lvl = if (long) entry * (1.0 - self.stop_loss) else entry * (1.0 + self.stop_loss);
             if (if (long) l <= lvl else h >= lvl) {
-                self.fill(i, adverseFill(long, o, lvl), 0, @intFromEnum(ExitReason.stop_loss));
+                self.fill(i, adverseFill(long, o, lvl), 0, @backingInt(ExitReason.stop_loss));
                 return;
             }
         }
         if (self.trailing > 0) {
             const lvl = if (long) self.best * (1.0 - self.trailing) else self.best * (1.0 + self.trailing);
             if (if (long) l <= lvl else h >= lvl) {
-                self.fill(i, adverseFill(long, o, lvl), 0, @intFromEnum(ExitReason.trailing));
+                self.fill(i, adverseFill(long, o, lvl), 0, @backingInt(ExitReason.trailing));
                 return;
             }
         }
         if (self.take_profit > 0) {
             const lvl = if (long) entry * (1.0 + self.take_profit) else entry * (1.0 - self.take_profit);
             if (if (long) h >= lvl else l <= lvl) {
-                self.fill(i, favourableFill(long, o, lvl), 0, @intFromEnum(ExitReason.take_profit));
+                self.fill(i, favourableFill(long, o, lvl), 0, @backingInt(ExitReason.take_profit));
                 return;
             }
         }
@@ -409,7 +409,7 @@ const Engine = struct {
         self.exit_units += q;
         self.exit_notional += q * last_close;
         self.flow += self.pos * last_close;
-        self.finishTrade(i, 0, @intFromEnum(ExitReason.end_of_data));
+        self.finishTrade(i, 0, @backingInt(ExitReason.end_of_data));
     }
 };
 
@@ -518,8 +518,8 @@ fn moments(eq: []const f64, e0: f64) Moments {
 
 fn nanResult() Result {
     var r = std.mem.zeroes(Result);
-    inline for (@typeInfo(Result).@"struct".fields) |f| {
-        if (f.type == f64) @field(r, f.name) = nan;
+    inline for (@typeInfo(Result).@"struct".field_names, @typeInfo(Result).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64) @field(r, f_name) = nan;
     }
     return r;
 }
@@ -605,7 +605,7 @@ pub fn run(
         .trades_out = trades,
         .cash = e0,
     };
-    const next_open = params.fill_mode == @intFromEnum(FillMode.next_open);
+    const next_open = params.fill_mode == @backingInt(FillMode.next_open);
     const no_short = params.allow_short == 0;
 
     var peak = e0;

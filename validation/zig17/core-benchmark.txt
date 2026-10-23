@@ -1,0 +1,62 @@
+Running HOCDB Benchmark...
+Record Size: 24 bytes
+Starting Write Benchmark...
+Duration: 30 seconds
+Target: As many writes as possible
+
+
+
+[WRITE] 314323031 records in 30.00s
+Throughput: 10477434.13 ops/sec
+Bandwidth:  239.81 MB/sec
+Latency:
+  Mean: 120.70 ns
+  p50:  42 ns
+  p90:  42 ns
+  p99:  84 ns
+
+[READ/LOAD] 89478482 records
+Time: 0.2096s
+Throughput: 426897761.39 ops/sec
+Bandwidth:  9770.91 MB/sec
+
+[AGGREGATION] 89478 frames (1000 records each)
+Time: 0.074719s
+Throughput: 1197532.09 frames/sec
+Processing: 1197532086.56 records/sec
+Checksum:   24145918549400540.00
+
+[QUERY BENCHMARK]
+Generating 1000000 records...
+Running 10,000 random range queries...
+Throughput: 157942.64 queries/sec
+Latency (Mean): 5280.55 ns
+Latency (p50):  5083 ns
+Latency (p99):  9875 ns
+
+[FLUSH-ON-WRITE BENCHMARK]
+Duration: 10 seconds
+
+Throughput: 178429.89 ops/sec
+Latency (Mean): 5631.64 ns
+Latency (p50):  5167 ns
+Latency (p99):  11750 ns
+
+[INDICATOR BENCHMARK] (SIMD lanes: 2)
+  sma(20)             1.63 ms        613293379 records/sec
+  ema(20)             1.92 ms        522068351 records/sec
+  rsi(14)             3.92 ms        254947576 records/sec
+  macd(12,26,9)       5.12 ms        195328409 records/sec
+  bbands(20)          5.27 ms        189705336 records/sec
+  atr(14)             2.60 ms        384319754 records/sec
+  adx(14)             7.56 ms        132202281 records/sec
+  stoch(14,3,3)       6.94 ms        144136353 records/sec
+  rolling_max(50)     2.04 ms        489955904 records/sec
+  obv                 1.42 ms        705198228 records/sec
+  mfi(14)             4.71 ms        212229739 records/sec
+  linreg(20)          6.34 ms        157691398 records/sec
+  snapshot(2500 bars, ~100 fields): 595.4 us per call
+  summary(1000000 bars, 29 stats): 40.37 ms
+  backtest(1000000 bars, 27395 trades, stops): 3.98 ms  250951546 bars/sec
+  universe(50 tickers x 500 bars, corr matrix): 113.2 us per call
+  Checksum: -547396.2323

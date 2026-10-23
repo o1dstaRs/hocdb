@@ -16,14 +16,20 @@ cd "$ROOT"
 VENV="${STRESS_VENV:-$ROOT/.venv-stress}"
 if [ ! -x "$VENV/bin/python" ]; then
   echo "Creating $VENV with numpy, pandas and TA-Lib..."
-  python3 -m venv "$VENV"
+  "${STRESS_PYTHON:-python3.12}" -m venv "$VENV"
   "$VENV/bin/pip" install -q --upgrade pip
-  "$VENV/bin/pip" install -q "numpy<2" "pandas<2.3" TA-Lib
+  "$VENV/bin/pip" install -q -r scripts/stress/requirements.txt
 fi
-"$VENV/bin/python" -c "import numpy, pandas, talib" || { echo "venv is missing numpy/pandas/TA-Lib"; exit 1; }
+"$VENV/bin/python" - <<'PY'
+import sys
+import numpy, pandas, talib
+if sys.version_info >= (3, 13):
+    raise SystemExit("Reference validation requires Python 3.12 with NumPy 1.26.4; set STRESS_PYTHON or STRESS_VENV.")
+if talib.__version__ != "0.7.1":
+    raise SystemExit("Reference conventions require TA-Lib==0.7.1; newer TA-Lib versions change MFI semantics.")
+PY
 echo "Building libraries..."
-zig build c-bindings >/dev/null
-zig build bindings >/dev/null
+"${ZIG:-$ROOT/scripts/zig.sh}" build c-bindings bindings -Doptimize=ReleaseFast >/dev/null
 GO_ARGS=()
 if [ -n "${GO:-}" ]; then
   GO_ARGS=(--go "$GO")

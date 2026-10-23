@@ -246,7 +246,8 @@ def main():
 
     try:
         test_basic_functionality()
-        benchmark_performance()  # Run the new performance benchmark
+        if "--no-benchmark" not in sys.argv:
+            benchmark_performance()
         test_schema_validation()
         print("All tests completed successfully!")
     except Exception as e:

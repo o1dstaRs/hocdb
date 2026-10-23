@@ -1,0 +1,4 @@
+macos Debug: 49 standalone binding suites and 16 Go tests passed
+macos ReleaseSafe: 49 standalone binding suites and 16 Go tests passed
+macos ReleaseFast: 49 standalone binding suites and 16 Go tests passed
+linux ReleaseSafe: 49 standalone binding suites and 16 Go tests passed

@@ -58,6 +58,7 @@ package hocdb
 /*
 #cgo CFLAGS: -I../../bindings/c
 #cgo LDFLAGS: -L../../zig-out/lib -lhocdb_c
+#cgo darwin LDFLAGS: -Wl,-rpath,${SRCDIR}/../../zig-out/lib
 #include "hocdb.h"
 #include <stdlib.h>
 */

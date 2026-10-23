@@ -539,14 +539,14 @@ function makeSyncInstance(db, recordSize, fieldOffsets) {
             return result;
         },
 
-        getStats: (start, end, field_index) => {
+        getStats: (start, end, field_index, compute_percentiles = false) => {
             let index = field_index;
             if (typeof field_index === 'string') {
                 const info = fieldOffsets[field_index];
                 if (!info) throw new Error(`Unknown field: ${field_index}`);
                 index = info.index;
             }
-            return addon.dbGetStats(db, BigInt(start), BigInt(end), Number(index));
+            return addon.dbGetStats(db, BigInt(start), BigInt(end), Number(index), Boolean(compute_percentiles));
         },
 
         getLatest: (field_index) => {
@@ -693,13 +693,13 @@ function createWorkerHost() {
             flush: () => call('flush', {}),
             query: (start, end, filters) => call('query', { start, end, filters }),
             load: () => call('load', {}),
-            getStats: (start, end, field_index) => {
+            getStats: (start, end, field_index, compute_percentiles = false) => {
                 let index = field_index;
                 if (typeof field_index === 'string') {
                     index = fieldOffsets[field_index];
                     if (index === undefined) throw new Error(`Unknown field: ${field_index}`);
                 }
-                return call('getStats', { start, end, field_index: index });
+                return call('getStats', { start, end, field_index: index, compute_percentiles: Boolean(compute_percentiles) });
             },
             getLatest: (field_index) => {
                 let index = field_index;

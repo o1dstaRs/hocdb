@@ -9,7 +9,7 @@
     <img src="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml/badge.svg" alt="CI Status">
   </a>
   <a href="https://ziglang.org/download/">
-    <img src="https://img.shields.io/badge/Zig-0.15.2-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
+    <img src="https://img.shields.io/badge/Zig-0.17.0-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
@@ -96,11 +96,21 @@ naive scalar implementations on million-row series in `src/test_indicators.zig`.
 
 HOCDB uses the Zig build system.
 
-**Prerequisites**: [Zig 0.15.2](https://ziglang.org/download/)
+**Prerequisites**: [Zig 0.17.0](https://ziglang.org/download/)
+
+See the [Zig 0.17 validation and performance report](validation/zig17/README.md)
+for the migration's measured results and test coverage.
+
+The release is pinned in `.zig-version`. `./scripts/zig.sh` uses an installed
+0.17.0 or downloads it to a user cache and verifies its official SHA256; it
+does not replace the system compiler. Use it wherever `zig` appears below.
 
 ```bash
-# Build core library and all bindings
+# Build the core example
 zig build
+
+# Build both native libraries used by all six bindings
+zig build c-bindings bindings -Doptimize=ReleaseFast
 
 # Run tests with summary
 zig build test --summary all
@@ -108,6 +118,17 @@ zig build test --summary all
 # Run benchmarks
 zig build bench -Doptimize=ReleaseFast
 ```
+
+Zig embedders can pass their own `std.Io` to `TimeSeriesDB(T).initWithIo`,
+`DynamicTimeSeriesDB.initWithIo`, and `openReaderWithIo`. The caller keeps that
+I/O implementation alive until the database closes. Existing `init` and
+binding APIs use synchronous I/O without installing a thread pool or signal
+handlers in the host process. The HOC2 storage format and C ABI are preserved.
+
+Writers verify that exclusive file locks are enforced and return
+`FileLocksUnsupported` when conflicting locks both succeed. This was observed
+on Docker Desktop shared folders during validation; keep database files on a
+Linux filesystem or Docker volume in that environment.
 
 ## Comparisons
 

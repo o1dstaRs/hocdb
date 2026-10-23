@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = hocdb.runtime;
 const hocdb = @import("hocdb");
 
 const TradeData = struct {
@@ -8,7 +9,7 @@ const TradeData = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -16,7 +17,7 @@ pub fn main() !void {
     const data_dir = "data";
 
     // Clean up previous run
-    std.fs.cwd().deleteTree(data_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, data_dir) catch {};
 
     const DB = hocdb.TimeSeriesDB(TradeData);
 
@@ -25,7 +26,7 @@ pub fn main() !void {
         var db = try DB.init(ticker, data_dir, std.heap.page_allocator, .{});
         defer db.deinit();
 
-        const now = std.time.timestamp();
+        const now = std.Io.Timestamp.now(runtime.io, .real).toSeconds();
 
         std.debug.print("Writing data points for {s}...\n", .{ticker});
         for (0..5) |i| {

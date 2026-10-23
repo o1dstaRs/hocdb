@@ -1,0 +1,2 @@
+debconf: delaying package configuration, since apt-utils is not installed
+PASS: 12 unreliable-lock files rejected; 0 accepted files correctly refused a second writer

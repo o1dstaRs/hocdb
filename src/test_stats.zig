@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const TimeSeriesDB = hocdb.TimeSeriesDB;
 const DynamicTimeSeriesDB = hocdb.DynamicTimeSeriesDB;
@@ -11,19 +12,19 @@ const TestRecord = extern struct {
 test "Aggregation API (getStats, getLatest)" {
     const ticker = "TEST_STATS";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup with retry
     var retries: usize = 0;
     while (retries < 10) : (retries += 1) {
-        std.fs.cwd().deleteTree(dir) catch |err| {
+        std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| {
             if (err == error.FileNotFound) break;
             if (retries == 9) return err;
             continue;
         };
         break;
     }
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(TestRecord);
     var db = try DB.init(ticker, dir, std.testing.allocator, .{
@@ -84,18 +85,18 @@ test "Aggregation API (getStats, getLatest)" {
 test "Aggregation API (Wrapped Buffer)" {
     const ticker = "TEST_STATS_WRAPPED";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_wrapped_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_stats_wrapped_{x}", .{runtime.randomInt(u64)});
 
     var retries: usize = 0;
     while (retries < 10) : (retries += 1) {
-        std.fs.cwd().deleteTree(dir) catch |err| {
+        std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| {
             if (err == error.FileNotFound) break;
             if (retries == 9) return err;
             continue;
         };
         break;
     }
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(TestRecord);
     const record_size = @sizeOf(TestRecord); // 16

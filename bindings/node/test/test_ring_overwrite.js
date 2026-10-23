@@ -1,9 +1,8 @@
-```javascript
 const hocdb = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 
-const TEST_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_ring_overwrite');
+const TEST_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_data', 'ring_overwrite');
 if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
 fs.mkdirSync(TEST_DIR, { recursive: true });
 
@@ -12,13 +11,9 @@ const schema = [
     { name: 'value', type: 'i64' }
 ];
 
-// Record size: 8 + 8 = 16 bytes
-// Header size: 12 bytes
-// Capacity 5 records: 16 * 5 = 80 bytes
-// Max file size: 80 + 12 = 92 bytes
-
+// HOC2 header plus five 16-byte records.
 const config = {
-    max_file_size: 92,
+    max_file_size: hocdb.headerSize() + 5 * 16,
     overwrite_on_full: true,
     flush_on_write: true // Ensure writes are flushed immediately for predictable testing
 };
@@ -55,23 +50,7 @@ try {
     console.log('Writing 7 (overwriting 2)...');
     append(7, 70);
 
-    // 4. Request ranges 1-5 (should return only 3-5)
-    // Note: Range is [start, end). So 1-5 means timestamps >= 1 and < 5.
-    // Records present: 3, 4, 5, 6, 7.
-    // Timestamps in range [1, 5): 3, 4.
-    // Wait, user said "request ranges 1-5 (should return only 3-5)".
-    // If user means inclusive 1-5, then 3, 4, 5.
-    // HOCDB query is [start, end).
-    // If user wants 1,2,3,4,5, they usually query 1 to 6.
-    // Let's assume user means "records with timestamps 1 to 5".
-    // But records 1 and 2 are overwritten.
-    // So records remaining are 3, 4, 5.
-    // If query is [1, 6), it should return 3, 4, 5.
-    // If query is [1, 5), it should return 3, 4.
-    // Let's check what user said: "request ranges 1-5 (should return only 3-5)".
-    // This implies inclusive.
-    // But HOCDB is exclusive end.
-    // I will query [1, 6) to cover 1-5.
+    // Half-open range [1, 6) retains records 3, 4 and 5.
     console.log('Querying range 1-6 (expecting 3, 4, 5)...');
     results = db.query(1n, 6n);
     console.log('Results 1-6:', results.map(r => Number(r.timestamp)));
@@ -110,4 +89,3 @@ try {
         fs.rmSync(TEST_DIR, { recursive: true, force: true });
     }
 }
-```

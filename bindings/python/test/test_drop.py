@@ -12,7 +12,8 @@ from hocdb_python import HOCDB, HOCDBField, FieldTypes
 
 def test_drop():
     """Test that drop() closes the database and deletes data files"""
-    test_dir = "../../../b_python_test_drop"
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    test_dir = os.path.join(repo_root, "b_python_test_data", "drop")
     ticker = "DROP_TEST"
 
     # Clean up from any previous run

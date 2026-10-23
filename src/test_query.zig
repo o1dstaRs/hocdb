@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const root = @import("root.zig");
 const TimeSeriesDB = root.TimeSeriesDB;
 
@@ -11,15 +12,15 @@ test "TimeSeriesDB query usage" {
 
     const ticker = "TEST_QUERY";
     var dir_buf_linear: [64]u8 = undefined;
-    const dir_linear = try std.fmt.bufPrint(&dir_buf_linear, "test_query_linear_{x}", .{std.crypto.random.int(u64)});
+    const dir_linear = try std.fmt.bufPrint(&dir_buf_linear, "test_query_linear_{x}", .{runtime.randomInt(u64)});
     var dir_buf_ring: [64]u8 = undefined;
-    const dir_ring = try std.fmt.bufPrint(&dir_buf_ring, "test_query_ring_{x}", .{std.crypto.random.int(u64)});
+    const dir_ring = try std.fmt.bufPrint(&dir_buf_ring, "test_query_ring_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir_linear) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir_linear) catch {};
-    std.fs.cwd().deleteTree(dir_ring) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir_ring) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir_linear) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir_linear) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir_ring) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir_ring) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
 
@@ -90,12 +91,12 @@ test "TimeSeriesDB multiple wrap" {
     };
     const ticker = "TEST_QUERY_WRAP";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_query_wrap_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_query_wrap_{x}", .{runtime.randomInt(u64)});
     const DB = TimeSeriesDB(TestStruct);
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     // 3. Multiple Wrap Test
     {

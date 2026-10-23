@@ -29,10 +29,10 @@ fn expectNear(want: f64, got: f64, tol: f64) !void {
 }
 
 fn expectNanRow(row: Row) !void {
-    inline for (@typeInfo(Row).@"struct".fields) |f| {
-        if (f.type == f64 and !std.mem.eql(u8, f.name, "last_close")) {
-            if (!math.isNan(@field(row, f.name))) {
-                std.debug.print("field {s} = {d}, expected NaN\n", .{ f.name, @field(row, f.name) });
+    inline for (@typeInfo(Row).@"struct".field_names, @typeInfo(Row).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64 and !std.mem.eql(u8, f_name, "last_close")) {
+            if (!math.isNan(@field(row, f_name))) {
+                std.debug.print("field {s} = {d}, expected NaN\n", .{ f_name, @field(row, f_name) });
                 return error.TestExpectedNan;
             }
         }
@@ -364,11 +364,11 @@ test "a ticker mirroring the market has beta 1 and idio_vol 0" {
     var corr: [9]f64 = undefined;
     _ = try uni.compute(&closes, null, null, .{ .periods_per_year = 252 }, &rows2, &corr, a);
     for (rows, rows2) |r1, r2| {
-        inline for (@typeInfo(Row).@"struct".fields) |f| {
-            if (f.type == f64) {
-                try expectNear(@field(r1, f.name), @field(r2, f.name), 0);
+        inline for (@typeInfo(Row).@"struct".field_names, @typeInfo(Row).@"struct".field_types) |f_name, f_type| {
+            if (f_type == f64) {
+                try expectNear(@field(r1, f_name), @field(r2, f_name), 0);
             } else {
-                try std.testing.expectEqual(@field(r1, f.name), @field(r2, f.name));
+                try std.testing.expectEqual(@field(r1, f_name), @field(r2, f_name));
             }
         }
     }
@@ -948,11 +948,11 @@ test "long history: only the tail is used, so results equal a truncated input" {
     const tail = [_][]const f64{ x[n - 61 ..], y[n - 61 ..] };
     const s_tail = try uni.compute(&tail, null, null, p, &rows_tail, &corr_tail, a);
     for (rows_full, rows_tail) |f, t| {
-        inline for (@typeInfo(Row).@"struct".fields) |fld| {
-            if (fld.type == f64) {
-                try expectNear(@field(t, fld.name), @field(f, fld.name), 0);
+        inline for (@typeInfo(Row).@"struct".field_names, @typeInfo(Row).@"struct".field_types) |fld_name, fld_type| {
+            if (fld_type == f64) {
+                try expectNear(@field(t, fld_name), @field(f, fld_name), 0);
             } else {
-                try std.testing.expectEqual(@field(t, fld.name), @field(f, fld.name));
+                try std.testing.expectEqual(@field(t, fld_name), @field(f, fld_name));
             }
         }
     }

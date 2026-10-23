@@ -2,6 +2,7 @@
 //! batches, warm-up trimming, tick->bar resampling, summary and snapshot,
 //! including the ring-buffer wrap path.
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const ind = hocdb.indicators;
 const DB = hocdb.DynamicTimeSeriesDB;
@@ -27,7 +28,7 @@ const schema = hocdb.Schema{ .fields = &[_]hocdb.FieldInfo{
 const cols = DB.IndicatorColumns{ .open = 1, .high = 2, .low = 3, .close = 4, .volume = 5 };
 
 fn tmpDir(buf: []u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "test_ind_db_{x}", .{std.crypto.random.int(u64)});
+    return std.fmt.bufPrint(buf, "test_ind_db_{x}", .{runtime.randomInt(u64)});
 }
 
 fn fill(db: *DB, n: usize, seed: u64) !void {
@@ -54,7 +55,7 @@ test "indicatorsRange trims warm-up rows and matches direct kernels" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("IND", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
@@ -62,10 +63,10 @@ test "indicatorsRange trims warm-up rows and matches direct kernels" {
     try fill(&db, n, 11);
 
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.sma), .period = 20 },
-        .{ .kind = @intFromEnum(ind.Kind.macd) },
-        .{ .kind = @intFromEnum(ind.Kind.atr), .period = 14 },
-        .{ .kind = @intFromEnum(ind.Kind.obv) },
+        .{ .kind = @backingInt(ind.Kind.sma), .period = 20 },
+        .{ .kind = @backingInt(ind.Kind.macd) },
+        .{ .kind = @backingInt(ind.Kind.atr), .period = 14 },
+        .{ .kind = @backingInt(ind.Kind.obv) },
     };
     // window = records 500..800 (timestamps 1000+500*60 .. 1000+800*60)
     const start_ts: i64 = 1_000 + 500 * 60;
@@ -111,14 +112,14 @@ test "indicatorsTail returns the last n rows with converged values" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("TAIL", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
     try fill(&db, 800, 12);
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.rsi), .period = 14 },
-        .{ .kind = @intFromEnum(ind.Kind.bbands) },
+        .{ .kind = @backingInt(ind.Kind.rsi), .period = 14 },
+        .{ .kind = @backingInt(ind.Kind.bbands) },
     };
     const res = try db.indicatorsTail(5, cols, &specs, DB.lookback_auto, 0, a);
     defer res.deinit();
@@ -141,14 +142,14 @@ test "field overrides run indicators on arbitrary fields and two-series kinds" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("OVR", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
     try fill(&db, 300, 13);
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.sma), .period = 10, .field_index = 5 }, // SMA of volume
-        .{ .kind = @intFromEnum(ind.Kind.correl), .period = 20, .field_index = 4, .field_index2 = 2 }, // corr(close, high)
+        .{ .kind = @backingInt(ind.Kind.sma), .period = 10, .field_index = 5 }, // SMA of volume
+        .{ .kind = @backingInt(ind.Kind.correl), .period = 20, .field_index = 4, .field_index2 = 2 }, // corr(close, high)
     };
     const res = try db.indicatorsTail(50, cols, &specs, DB.lookback_auto, 0, a);
     defer res.deinit();
@@ -166,12 +167,12 @@ test "bucket > 0 resamples ticks into bars before computing" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("BUCKET", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
     try fill(&db, 1000, 14); // 60s spacing -> bucket 300 = 5 records per bar = 200 bars
-    const specs = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.sma), .period = 3 }};
+    const specs = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.sma), .period = 3 }};
     // last 10 bars
     const res = try db.indicatorsTail(10, cols, &specs, DB.lookback_auto, 300, a);
     defer res.deinit();
@@ -196,7 +197,7 @@ test "bucket > 0 resamples ticks into bars before computing" {
     try std.testing.expectEqual(start_ts, rr.timestamps[0]);
     for (0..50) |i| try std.testing.expectApproxEqRel(out[100 + i], rr.output(0)[i], 1e-12);
     // field overrides are rejected in bucket mode
-    const bad = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.sma), .field_index = 5 }};
+    const bad = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.sma), .field_index = 5 }};
     try std.testing.expectError(error.FieldOverrideNotSupportedWithBucket, db.indicatorsTail(10, cols, &bad, 0, 300, a));
 }
 
@@ -204,7 +205,7 @@ test "summary and snapshot over the DB" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("SNAP", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
@@ -233,7 +234,7 @@ test "readColumns follows logical order across a ring-buffer wrap" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     // capacity: header + 100 records of 48 bytes
     var db = try DB.init("WRAP", dir, a, schema, .{ .max_file_size = DB.HEADER_SIZE + 100 * 48, .overwrite_on_full = true });
     try db.initWriter();
@@ -245,7 +246,7 @@ test "readColumns follows logical order across a ring-buffer wrap" {
     defer set.deinit();
     for (1..100) |i| try std.testing.expect(set.ts[i] > set.ts[i - 1]);
     try std.testing.expectEqual(@as(i64, 1_000 + 249 * 60), set.ts[99]);
-    const specs = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.ema), .period = 5 }};
+    const specs = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.ema), .period = 5 }};
     const res = try db.indicatorsTail(3, cols, &specs, DB.lookback_auto, 0, a);
     defer res.deinit();
     try std.testing.expectEqual(@as(usize, 3), res.n_rows);
@@ -259,7 +260,7 @@ test "bucket mode with session gaps: tails count existing bars, windows select b
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("GAPS", dir, a, schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
@@ -276,7 +277,7 @@ test "bucket mode with session gaps: tails count existing bars, windows select b
         ts += 30;
     }
     try db.flush();
-    const specs = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.sma), .period = 3 }};
+    const specs = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.sma), .period = 3 }};
     // 300 one-minute bars exist in total (100 per session)
     const bars = try db.ohlcv(std.math.minInt(i64), std.math.maxInt(i64), 4, 5, 60, a);
     defer bars.deinit(a);
@@ -355,16 +356,16 @@ test "microstructure kinds on ticks and bars, ohlcv with buy volume" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("MICRO", dir, a, tick_schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
     try fillTicks(&db, 600, 1_000_000, 1_000_000, 21); // 1 tick / second, microseconds
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.spread) },
-        .{ .kind = @intFromEnum(ind.Kind.order_flow), .period = 3 },
-        .{ .kind = @intFromEnum(ind.Kind.trade_intensity), .period = 10 },
-        .{ .kind = @intFromEnum(ind.Kind.tick_pressure), .period = 5 },
+        .{ .kind = @backingInt(ind.Kind.spread) },
+        .{ .kind = @backingInt(ind.Kind.order_flow), .period = 3 },
+        .{ .kind = @backingInt(ind.Kind.trade_intensity), .period = 10 },
+        .{ .kind = @backingInt(ind.Kind.tick_pressure), .period = 5 },
     };
     const res = try db.indicatorsTail(20, tick_cols, &specs, DB.lookback_auto, 0, a);
     defer res.deinit();
@@ -381,7 +382,7 @@ test "microstructure kinds on ticks and bars, ohlcv with buy volume" {
     for (0..20) |i| try std.testing.expectApproxEqRel(net[580 + i], res.output(2)[i], 1e-12);
     for (res.output(4)) |v| try std.testing.expectApproxEqRel(1.0, v, 1e-9); // 1 trade per second
     // bars of 10 seconds carry buy volume; order_flow works on bars
-    const bar_specs = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.order_flow), .period = 1 }};
+    const bar_specs = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.order_flow), .period = 1 }};
     const bres = try db.indicatorsTail(5, tick_cols, &bar_specs, 0, 10_000_000, a);
     defer bres.deinit();
     try std.testing.expectEqual(@as(usize, 5), bres.n_rows);
@@ -404,15 +405,15 @@ test "session-anchored kinds see the session start even when the window starts l
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("SESS", dir, a, tick_schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
     try fillTicks(&db, 1000, 0, 1_000, 22); // ms ticks; sessions of 100 s = 100_000 units -> 100 ticks each
     // tick mode: session VWAP and range
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.session_vwap), .param = 100_000 },
-        .{ .kind = @intFromEnum(ind.Kind.session_range), .param = 100_000 },
+        .{ .kind = @backingInt(ind.Kind.session_vwap), .param = 100_000 },
+        .{ .kind = @backingInt(ind.Kind.session_range), .param = 100_000 },
     };
     // window in the middle of session 5 (ticks 500..599): rows 550..559
     const win = try db.indicatorsRange(550_000, 560_000, tick_cols, &specs, 0, 0, a);
@@ -430,8 +431,8 @@ test "session-anchored kinds see the session start even when the window starts l
     for (0..10) |i| try std.testing.expectApproxEqRel(full.output(0)[990 + i], tail.output(0)[i], 1e-12);
     // bar mode (10 s bars, 10 per session): pivots need the previous session, opening range the session start
     const bar_specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.pivots), .param = 100_000 },
-        .{ .kind = @intFromEnum(ind.Kind.opening_range), .period = 5, .param = 100_000 },
+        .{ .kind = @backingInt(ind.Kind.pivots), .param = 100_000 },
+        .{ .kind = @backingInt(ind.Kind.opening_range), .period = 5, .param = 100_000 },
     };
     const bfull = try db.indicatorsRange(std.math.minInt(i64), std.math.maxInt(i64), tick_cols, &bar_specs, 0, 10_000, a);
     defer bfull.deinit();
@@ -447,7 +448,7 @@ test "session-anchored kinds see the session start even when the window starts l
     try std.testing.expect(ind.isNan(bfull.output(0)[5])); // first session has no previous session
     try std.testing.expect(!ind.isNan(bfull.output(0)[15]));
     // missing session length is rejected
-    const bad = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.session_vwap) }};
+    const bad = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.session_vwap) }};
     try std.testing.expectError(error.CalendarRequired, db.indicatorsTail(10, tick_cols, &bad, 0, 0, a)); // param 0 = calendar sessions, none configured
 }
 
@@ -455,7 +456,7 @@ test "pair indicators: as-of join on ticks and inner join on bars" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var dba = try DB.init("PAIR_A", dir, a, tick_schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try dba.initWriter();
     defer dba.deinit();
@@ -465,10 +466,10 @@ test "pair indicators: as-of join on ticks and inner join on bars" {
     try fillTicks(&dba, 500, 0, 1_000, 31); // A every 1 s (ms units)
     try fillTicks(&dbb, 200, 300, 2_500, 32); // B every 2.5 s starting at 0.3 s
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.series) },
-        .{ .kind = @intFromEnum(ind.Kind.series2) },
-        .{ .kind = @intFromEnum(ind.Kind.ratio) },
-        .{ .kind = @intFromEnum(ind.Kind.correl), .period = 20 },
+        .{ .kind = @backingInt(ind.Kind.series) },
+        .{ .kind = @backingInt(ind.Kind.series2) },
+        .{ .kind = @backingInt(ind.Kind.ratio) },
+        .{ .kind = @backingInt(ind.Kind.correl), .period = 20 },
     };
     // tick mode: every A row, B as-of
     const r = try dba.pairRange(&dbb, tick_cols, tick_cols, 100_000, 110_000, &specs, DB.lookback_auto, 0, a);
@@ -506,7 +507,7 @@ test "snapshotMulti equals individual snapshots; health; evaluate" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("MULTI", dir, a, tick_schema, .{ .max_file_size = 16 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
@@ -552,7 +553,7 @@ test "pivots in a window use the previous session that has data (weekend gaps)" 
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var db = try DB.init("WEEKEND", dir, a, tick_schema, .{ .max_file_size = 8 * 1024 * 1024 });
     try db.initWriter();
     defer db.deinit();
@@ -569,7 +570,7 @@ test "pivots in a window use the previous session that has data (weekend gaps)" 
         }
     }
     try db.flush();
-    const specs = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.pivots), .param = 1000 }};
+    const specs = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.pivots), .param = 1000 }};
     const full = try db.indicatorsRange(std.math.minInt(i64), std.math.maxInt(i64), tick_cols, &specs, 0, 10, a);
     defer full.deinit();
     // bars: 50 per session -> session 4 occupies rows 100..149; its pivots come from session 1

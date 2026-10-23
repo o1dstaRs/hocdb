@@ -45,7 +45,7 @@ static void rm_rf(const std::string& path) {
 int test_query() {
     std::cout << "Testing query()...\n";
 
-    const std::string test_dir = "../../../b_cpp_test_query";
+    const std::string test_dir = "b_cpp_test_data/query";
     rm_rf(test_dir);
 
     std::vector<hocdb::Field> schema = {
@@ -136,7 +136,7 @@ int test_query() {
 int test_drop() {
     std::cout << "Testing drop()...\n";
 
-    const std::string test_dir = "../../../b_cpp_test_drop";
+    const std::string test_dir = "b_cpp_test_data/drop";
     rm_rf(test_dir);
 
     std::vector<hocdb::Field> schema = {

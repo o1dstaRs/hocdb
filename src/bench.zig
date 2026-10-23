@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = hocdb.runtime;
 const hocdb = @import("hocdb");
 
 const BenchRecord = struct {
@@ -8,20 +9,20 @@ const BenchRecord = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(runtime.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     const DB = hocdb.TimeSeriesDB(BenchRecord);
     const ticker = "BENCH_MARK";
     const data_dir = "bench_data";
 
     // Cleanup
-    std.fs.cwd().deleteTree(data_dir) catch {};
-    defer std.fs.cwd().deleteTree(data_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, data_dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, data_dir) catch {};
 
     try stdout.print("Running HOCDB Benchmark...\n", .{});
     try stdout.print("Record Size: {d} bytes\n", .{@sizeOf(BenchRecord)});
@@ -43,7 +44,7 @@ pub fn main() !void {
         try stdout.print("Target: As many writes as possible\n\n", .{});
         try stdout.flush();
 
-        var timer = try std.time.Timer.start();
+        var timer = try runtime.Timer.start();
         const start_time = timer.read();
 
         var i: usize = 0;
@@ -111,7 +112,7 @@ pub fn main() !void {
         var db = try DB.init(ticker, data_dir, allocator, .{});
         defer db.deinit();
 
-        var timer = try std.time.Timer.start();
+        var timer = try runtime.Timer.start();
         const start = timer.read();
 
         const data = try db.load(allocator);
@@ -122,7 +123,7 @@ pub fn main() !void {
 
         try stdout.print("\n[READ/LOAD] {d} records\n", .{data.len});
         try stdout.print("Time: {d:.4}s\n", .{load_time_s});
-        const load_ops_per_sec = @as(f64, @floatFromInt(total_records)) / load_time_s;
+        const load_ops_per_sec = @as(f64, @floatFromInt(data.len)) / load_time_s;
         const load_mb_per_sec = (load_ops_per_sec * @sizeOf(BenchRecord)) / (1024 * 1024);
         try stdout.print("Throughput: {d:.2} ops/sec\n", .{load_ops_per_sec});
         try stdout.print("Bandwidth:  {d:.2} MB/sec\n", .{load_mb_per_sec});
@@ -169,7 +170,7 @@ pub fn main() !void {
     {
         try stdout.print("\n[QUERY BENCHMARK]\n", .{});
         // Cleanup
-        std.fs.cwd().deleteTree(data_dir) catch {};
+        std.Io.Dir.cwd().deleteTree(runtime.io, data_dir) catch {};
 
         var db = try DB.init(ticker, data_dir, allocator, .{});
         defer db.deinit();
@@ -196,7 +197,7 @@ pub fn main() !void {
         var rng = std.Random.DefaultPrng.init(0);
         const random = rng.random();
 
-        var timer = try std.time.Timer.start();
+        var timer = try runtime.Timer.start();
         const start_time = timer.read();
 
         var q: usize = 0;
@@ -239,7 +240,7 @@ pub fn main() !void {
     {
         try stdout.print("\n[FLUSH-ON-WRITE BENCHMARK]\n", .{});
         // Cleanup
-        std.fs.cwd().deleteTree(data_dir) catch {};
+        std.Io.Dir.cwd().deleteTree(runtime.io, data_dir) catch {};
 
         var db = try DB.init(ticker, data_dir, allocator, .{ .flush_on_write = true });
         defer db.deinit();
@@ -254,7 +255,7 @@ pub fn main() !void {
         try stdout.print("Duration: 10 seconds\n", .{});
         try stdout.flush();
 
-        var timer = try std.time.Timer.start();
+        var timer = try runtime.Timer.start();
         const start_time = timer.read();
 
         var i: usize = 0;
@@ -403,7 +404,7 @@ pub fn main() !void {
         };
         var checksum: f64 = 0;
         for (cases) |cs| {
-            var timer = try std.time.Timer.start();
+            var timer = try runtime.Timer.start();
             try cs.run(close, high, low, volume, allocator, .{ o0, o1, o2, o3, o4 });
             const ns = timer.read();
             checksum += o0[n - 1];
@@ -417,7 +418,7 @@ pub fn main() !void {
             defer allocator.free(ts);
             for (0..m) |k| ts[k] = @intCast(k);
             const reps: usize = 200;
-            var timer = try std.time.Timer.start();
+            var timer = try runtime.Timer.start();
             var acc: f64 = 0;
             for (0..reps) |_| {
                 const snap = try ind.snapshot(ts, null, high[0..m], low[0..m], close[0..m], volume[0..m], 252, allocator);
@@ -429,7 +430,7 @@ pub fn main() !void {
         }
         // Scalar analytics over the whole series.
         {
-            var timer = try std.time.Timer.start();
+            var timer = try runtime.Timer.start();
             const sm = try ind.summary(close, 252, allocator);
             const ns = timer.read();
             checksum += sm.sharpe;
@@ -450,7 +451,7 @@ pub fn main() !void {
             const bars_ts = try allocator.alloc(i64, n);
             defer allocator.free(bars_ts);
             for (0..n) |i| bars_ts[i] = @intCast(i * 60);
-            var timer = try std.time.Timer.start();
+            var timer = try runtime.Timer.start();
             const r = try bt.run(bars_ts, null, null, null, close, target, .{ .initial_equity = 1_000_000, .cost_bps = 5, .slippage_bps = 1, .stop_loss = 0.02, .position_mode = 1, .periods_per_year = 252 * 390 }, .{}, null, allocator);
             const ns = timer.read();
             checksum += r.final_equity;
@@ -479,7 +480,7 @@ pub fn main() !void {
             defer allocator.free(rows);
             const corr = try allocator.alloc(f64, m * m);
             defer allocator.free(corr);
-            var timer = try std.time.Timer.start();
+            var timer = try runtime.Timer.start();
             const reps: usize = 20;
             var acc: f64 = 0;
             for (0..reps) |_| {

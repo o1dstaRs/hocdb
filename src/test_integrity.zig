@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const root = @import("root.zig");
 const TimeSeriesDB = root.TimeSeriesDB;
 
@@ -11,11 +12,11 @@ test "Integrity: Load with Ring Buffer" {
 
     const ticker = "TEST_INTEGRITY_RING";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_ring_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_ring_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     // Calculate size for exactly 5 records
     // header + 5 * (8+8+8=24) bytes
@@ -63,11 +64,11 @@ test "Integrity: Random Data" {
 
     const ticker = "TEST_INTEGRITY_RANDOM";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_random_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_integrity_random_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
     var db = try DB.init(ticker, dir, std.testing.allocator, .{});

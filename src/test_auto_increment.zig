@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const root = @import("root.zig");
 const TimeSeriesDB = root.TimeSeriesDB;
 
@@ -10,11 +11,11 @@ test "Auto-Increment: Basic Functionality & Persistence" {
 
     const ticker = "TEST_AUTO_INC";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_auto_inc_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_auto_inc_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
 
@@ -70,11 +71,11 @@ test "AutoIncrement: Missing Timestamp Field" {
     };
     const ticker = "TEST_NO_TS";
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_no_ts_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_no_ts_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup
-    std.fs.cwd().deleteTree(dir) catch |err| if (err != error.FileNotFound) return err;
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| if (err != error.FileNotFound) return err;
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(NoTimestampStruct);
 

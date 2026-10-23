@@ -399,7 +399,7 @@ export interface AsyncDBInstance extends Promisify<IndicatorMethods>, AsyncStora
     flush(): Promise<{ success: boolean }>;
     load(): Promise<Record<string, number | bigint | boolean>[]>;
     query(start: bigint, end: bigint, filters?: Record<string, number | bigint | boolean> | any[]): Promise<Record<string, number | bigint | boolean>[]>;
-    getStats(start: bigint, end: bigint, field_index: number | string): Promise<{ min: number, max: number, sum: number, count: bigint, mean: number }>;
+    getStats(start: bigint, end: bigint, field_index: number | string, compute_percentiles?: boolean): Promise<{ min: number, max: number, sum: number, count: bigint, mean: number, p50?: number, p90?: number, p95?: number, p99?: number }>;
     getLatest(field_index: number | string): Promise<{ value: number, timestamp: bigint }>;
     /** Pair indicators; `other` must be hosted by the same worker (see openAsync). */
     pairIndicators(other: AsyncDBInstance, specs: (IndicatorSpec | string | number)[], options?: PairIndicatorOptions): Promise<IndicatorResult>;

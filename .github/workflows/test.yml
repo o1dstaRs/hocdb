@@ -2,133 +2,50 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        optimize: [Debug, ReleaseSafe]
+    runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Zig
-      uses: goto-bus-stop/setup-zig@v2
-      with:
-        version: 0.15.2
-        cache: false
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'lts/*'
-
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v1
-      with:
-        bun-version: latest
-
-    - name: Setup Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.21'
-        cache: false
-
-    - name: Build C Bindings
-      run: zig build c-bindings
-
-    - name: Set up library path
-      run: echo "LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-
-    # Run Go Tests (needs C bindings to compile)
-
-
-    - name: Run Core Tests
-      run: zig build test --summary all
-
-    - name: Run Benchmarks
-      run: zig build bench
-
-    - name: Run Python Tests
-      run: |
-        export PYTHONPATH=$(pwd)/bindings/python
-        python3 bindings/python/test/test_query.py
-        python3 bindings/python/test/test_indicators.py
-        python3 bindings/python/test/test_storage.py
-        python3 bindings/python/test/test_round4.py
-
-    - name: Run Go Tests
-      run: |
-        export DYLD_LIBRARY_PATH=$(pwd)/zig-out/lib:$DYLD_LIBRARY_PATH
-        export LD_LIBRARY_PATH=$(pwd)/zig-out/lib:$LD_LIBRARY_PATH
-        cd bindings/go && go test -v ./test/...
-
-    - name: Run C++ Tests
-      run: |
-        clang++ -std=c++17 bindings/c/test/test_cpp.cpp -o bindings/c/test/test_cpp -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        bindings/c/test/test_cpp
-        rm bindings/c/test/test_cpp
-
-    - name: Run C Recovery Test
-      run: |
-        clang -o bindings/c/test/test_auto_inc_recovery bindings/c/test/test_auto_inc_recovery.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        ./bindings/c/test/test_auto_inc_recovery
-        rm bindings/c/test/test_auto_inc_recovery
-
-    - name: Run C Indicator Test
-      run: |
-        mkdir -p test_binaries
-        clang -o test_binaries/test_c_indicators bindings/c/test/test_indicators.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-        ./test_binaries/test_c_indicators
-        rm test_binaries/test_c_indicators
-
-    - name: Run C Storage Test
-      run: |
-        mkdir -p test_binaries
-        clang -o test_binaries/test_c_storage bindings/c/test/test_storage.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-        ./test_binaries/test_c_storage
-        rm test_binaries/test_c_storage
-
-    - name: Run C++ Indicator Test
-      run: |
-        mkdir -p test_binaries
-        clang++ -std=c++17 bindings/cpp/test/test_indicators.cpp -o test_binaries/test_cpp_indicators -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        ./test_binaries/test_cpp_indicators
-        rm test_binaries/test_cpp_indicators
-
-    - name: Build Node.js Bindings
-      run: zig build bindings
-
-    - name: Run C Calendar, Backtest and Universe Tests
-      run: |
-        mkdir -p test_binaries
-        for t in calendar backtest universe; do
-          clang -o test_binaries/test_c_$t bindings/c/test/test_$t.c -I bindings/c -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib -lm
-          ./test_binaries/test_c_$t
-          rm test_binaries/test_c_$t
-        done
-
-    - name: Run C++ Storage Test
-      run: |
-        mkdir -p test_binaries
-        clang++ -std=c++17 bindings/cpp/test/test_storage.cpp -o test_binaries/test_cpp_storage -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        ./test_binaries/test_cpp_storage
-        rm test_binaries/test_cpp_storage
-        clang++ -std=c++17 bindings/cpp/test/test_round4.cpp -o test_binaries/test_cpp_round4 -I bindings/c -I bindings/cpp -L zig-out/lib -lhocdb_c -Wl,-rpath,zig-out/lib
-        ./test_binaries/test_cpp_round4
-        rm test_binaries/test_cpp_round4
-
-    - name: Run Node.js Tests
-      run: |
-        node bindings/node/test/test.js
-        node bindings/node/test/test_indicators.js
-        node bindings/node/test/test_storage.js
-        node bindings/node/test/test_round4.js
-
-    - name: Run Bun Tests
-      run: |
-        bun run bindings/bun/test/test.ts
-        bun run bindings/bun/test/test_indicators.ts
-        bun run bindings/bun/test/test_storage.ts
-        bun run bindings/bun/test/test_round4.ts
+      - uses: actions/checkout@v4
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.17.0
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the core example
+        run: zig build -Doptimize=${{ matrix.optimize }}
+      - name: Core tests
+        run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+      - name: Every binding regression suite
+        run: ./verify_all.sh
+        env:
+          VERIFY_OPTIMIZE: ${{ matrix.optimize }}
+      - name: ReleaseFast core tests
+        if: matrix.optimize == 'ReleaseSafe'
+        run: zig build test -Doptimize=ReleaseFast --summary all
+      - name: Reference, fuzz, durability and cross-binding smoke validation
+        if: matrix.optimize == 'ReleaseSafe'
+        run: ./scripts/stress/run_overnight.sh --quick
+      - name: Benchmarks
+        if: matrix.optimize == 'ReleaseSafe'
+        run: zig build bench -Doptimize=ReleaseFast

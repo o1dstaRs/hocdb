@@ -1,0 +1,100 @@
+1/99 root.test.TimeSeriesDB generic usage...OK
+2/99 root.test_0...OK
+3/99 test_migration.test.lower bounds match a scalar model across strides, sparse gaps and ring wraps...OK
+4/99 test_migration.test.typed records round-trip native padding and reordered fields with caller-owned I/O...OK
+5/99 test_migration.test.bulk load includes the maximum timestamp for native records and wrapped rings...OK
+6/99 test_migration.test.failed append leaves timestamps, checksums and counters intact...OK
+7/99 test_migration.test.readers load only published records even when an uncommitted tail is on disk...OK
+8/99 test_migration.test.initialization and index allocation failures release all owned resources...OK
+9/99 test_migration.test.index allocation failure does not accept or checksum a rejected append...OK
+10/99 test_migration.test.wrapping during the final flush invalidates sparse index bounds...OK
+11/99 test_migration.test.writers reject an I/O implementation that accepts conflicting exclusive locks...OK
+12/99 test_migration.test.large auto-increment records preserve input and reject allocation failures atomically...OK
+13/99 test_stats.test.Aggregation API (getStats, getLatest)...OK
+14/99 test_stats.test.Aggregation API (Wrapped Buffer)...OK
+15/99 test_query.test.TimeSeriesDB query usage...OK
+16/99 test_query.test.TimeSeriesDB multiple wrap...OK
+17/99 test_auto_increment.test.Auto-Increment: Basic Functionality & Persistence...OK
+18/99 test_auto_increment.test.AutoIncrement: Missing Timestamp Field...OK
+19/99 test_integrity.test.Integrity: Load with Ring Buffer...OK
+20/99 test_integrity.test.Integrity: Random Data...OK
+21/99 test_indicators.test.rollingSum matches naive summation on a long series (1M)...OK
+22/99 test_indicators.test.rollingSum in place aliases correctly...OK
+23/99 test_indicators.test.rollingMax / rollingMin match naive scan for many periods...OK
+24/99 test_indicators.test.rollingMoments matches two-pass reference on a long drifting series...OK
+25/99 test_indicators.test.emaMulti equals independent ema per lane...OK
+26/99 test_indicators.test.percentRank matches naive count...OK
+27/99 test_indicators.test.warm-up lengths: first valid index equals the documented lookback...OK
+28/99 test_indicators.test.series shorter than the period yields all NaN without error...OK
+29/99 test_indicators.test.empty input is handled by every kind...OK
+30/99 test_indicators.test.warmup recommendation converges the first in-window EMA value...OK
+31/99 test_indicators.test.resample in tick mode derives OHLC from price and counts records...OK
+32/99 test_indicators.test.snapshot fields agree with individual kernels...OK
+33/99 test_indicators.test.kind registry: names and output counts are consistent...OK
+34/99 test_indicators.test.spread and order flow on ticks...OK
+35/99 test_indicators.test.tick pressure carries the previous sign through zero ticks...OK
+36/99 test_indicators.test.trade intensity, amihud and realized volatility...OK
+37/99 test_indicators.test.pair kinds and alignment...OK
+38/99 test_indicators.test.forward returns and triple-barrier labels...OK
+39/99 test_indicators.test.session-anchored kinds reset at session boundaries...OK
+40/99 test_indicators.test.health statistics...OK
+41/99 test_indicators.test.decision evaluation...OK
+42/99 test_indicators_golden.test.golden indicators vs TA-Lib / numpy references...OK
+43/99 test_indicators_golden.test.golden summary vs numpy...OK
+44/99 test_indicators_golden.test.golden resample 300...OK
+45/99 test_indicators_db.test.indicatorsRange trims warm-up rows and matches direct kernels...OK
+46/99 test_indicators_db.test.indicatorsTail returns the last n rows with converged values...OK
+47/99 test_indicators_db.test.field overrides run indicators on arbitrary fields and two-series kinds...OK
+48/99 test_indicators_db.test.bucket > 0 resamples ticks into bars before computing...OK
+49/99 test_indicators_db.test.summary and snapshot over the DB...OK
+50/99 test_indicators_db.test.readColumns follows logical order across a ring-buffer wrap...OK
+51/99 test_indicators_db.test.bucket mode with session gaps: tails count existing bars, windows select bars by timestamp...OK
+52/99 test_indicators_db.test.microstructure kinds on ticks and bars, ohlcv with buy volume...OK
+53/99 test_indicators_db.test.session-anchored kinds see the session start even when the window starts later...OK
+54/99 test_indicators_db.test.pair indicators: as-of join on ticks and inner join on bars...OK
+55/99 test_indicators_db.test.snapshotMulti equals individual snapshots; health; evaluate...OK
+56/99 test_indicators_db.test.pivots in a window use the previous session that has data (weekend gaps)...OK
+57/99 test_storage.test.v2 header round trip and committed cursor...OK
+58/99 test_storage.test.crash recovery: uncommitted tail is adopted when valid, torn or misordered bytes are dropped...OK
+59/99 test_storage.test.lock-free readers follow the writer; second writer is refused...OK
+60/99 test_storage.test.readers follow a ring buffer across the wrap...OK
+61/99 test_storage.test.fsync policies and metrics...OK
+62/99 test_storage.test.checksum detects corruption; verify_on_open refuses a corrupted file...OK
+63/99 test_storage.test.compaction, retention and readers following a rewritten file...OK
+64/99 test_storage.test.rollover archives the file and continues; auto rollover by size...OK
+65/99 test_storage.test.legacy HOC1 files are migrated on the first writer open (linear and wrapped)...OK
+66/99 calendar.test.civil date round trip and weekdays...OK
+67/99 calendar.test.US and EU daylight saving...OK
+68/99 calendar.test.NYSE holidays and early closes...OK
+69/99 calendar.test.LSE holidays...OK
+70/99 calendar.test.FX, crypto and CME sessions...OK
+71/99 calendar.test.session navigation and open time...OK
+72/99 calendar.test.custom calendar registry...OK
+73/99 test_calendar_db.test.calendar sessions drive session kinds, health and annualisation...OK
+74/99 test_calendar_db.test.calendar id and timestamp unit persist in the header and reach readers...OK
+75/99 test_universe.test.tied example A matches the pandas reference (4 tickers x 80 bars)...OK
+76/99 test_universe.test.tied example B (late listing + volume weights) matches the pandas reference...OK
+77/99 test_universe.test.rank: ties, NaNs, single element, all equal, empty...OK
+78/99 test_universe.test.rank: SIMD path equals the naive O(n^2) reference on longer inputs...OK
+79/99 test_universe.test.two identical tickers: corr 1, beta 1, rel_strength 0, tie ranks...OK
+80/99 test_universe.test.a ticker mirroring the market has beta 1 and idio_vol 0...OK
+81/99 test_universe.test.fewer bars than the periods: NaN features, no crash, exclusion...OK
+82/99 test_universe.test.n_tickers = 1, n_bars = 0 / 1, n_tickers = 0...OK
+83/99 test_universe.test.argument validation...OK
+84/99 test_universe.test.weights_mode 1 changes the market when volumes differ...OK
+85/99 test_universe.test.random universe vs slow scalar reference (NaN gaps, ranks, matrix symmetry)...OK
+86/99 test_universe.test.long history: only the tail is used, so results equal a truncated input...OK
+87/99 test_universe_db.test.universe joins several databases and matches the kernel on hand-joined arrays...OK
+88/99 test_backtest.test.tied example matches the Python reference...OK
+89/99 test_backtest.test.flat target: no trades, constant equity...OK
+90/99 test_backtest.test.always long with full equity and no costs equals buy-and-hold from the first fill...OK
+91/99 test_backtest.test.flip long to short: two trades with correctly signed slippage...OK
+92/99 test_backtest.test.stop loss, take profit and trailing exits (levels and gap-through)...OK
+93/99 test_backtest.test.position sizing modes, max_position and allow_short...OK
+94/99 test_backtest.test.drawdown statistics and annualisation...OK
+95/99 test_backtest.test.walk-forward splits and runSplits...OK
+96/99 test_backtest.test.accounting identities on random targets (cash + position * close == equity, trade pnl sums)...OK
+97/99 test_backtest.test.NaN prices carry equity and defer fills; NaN targets hold...OK
+98/99 test_backtest_db.test.backtest on bucketed bars equals the kernel on ohlcv() bars; tail and errors...OK
+99/99 crc32c.test.CRC32C matches the generic implementation for offsets, tails and streaming updates...OK
+All 99 tests passed.

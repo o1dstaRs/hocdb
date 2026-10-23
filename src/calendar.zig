@@ -31,6 +31,7 @@
 //! `first_custom_id`); they live in this process only.
 
 const std = @import("std");
+const runtime = @import("runtime.zig");
 
 pub const DAY: i64 = 86400;
 
@@ -492,8 +493,8 @@ pub const cme = Calendar{ .name = "cme", .weekly = weekdays5(-7 * 3600, 16 * 360
 
 const builtin = [_]*const Calendar{ &crypto, &fx, &nyse, &nasdaq, &lse, &cme };
 
-var custom_mutex: std.Thread.Mutex = .{};
-var custom_slots: [max_custom]?Calendar = [_]?Calendar{null} ** max_custom;
+var custom_mutex: std.Io.Mutex = .init;
+var custom_slots: [max_custom]?Calendar = @as([max_custom]?Calendar, @splat(null));
 var custom_count: usize = 0;
 
 /// Calendar by id (built-in or custom), null for 0 / unknown ids.
@@ -503,8 +504,8 @@ pub fn get(id: u32) ?*const Calendar {
     if (id < first_custom_id) return null;
     const slot = id - first_custom_id;
     if (slot >= max_custom) return null;
-    custom_mutex.lock();
-    defer custom_mutex.unlock();
+    custom_mutex.lockUncancelable(runtime.io);
+    defer custom_mutex.unlock(runtime.io);
     if (custom_slots[slot]) |*c| return c;
     return null;
 }
@@ -512,8 +513,8 @@ pub fn get(id: u32) ?*const Calendar {
 /// Id of a calendar by name (case-insensitive), 0 when unknown.
 pub fn idByName(name: []const u8) u32 {
     for (builtin, 0..) |c, i| if (std.ascii.eqlIgnoreCase(c.name, name)) return @intCast(i + 1);
-    custom_mutex.lock();
-    defer custom_mutex.unlock();
+    custom_mutex.lockUncancelable(runtime.io);
+    defer custom_mutex.unlock(runtime.io);
     for (custom_slots, 0..) |slot, i| if (slot) |c| if (std.ascii.eqlIgnoreCase(c.name, name)) return @intCast(first_custom_id + i);
     return 0;
 }
@@ -533,8 +534,8 @@ pub fn define(name: []const u8, weekly: [7]?DaySession, utc_offset_sec: i32, dst
     std.mem.sort(i32, hol, {}, std.sort.asc(i32));
     const early = try alloc.dupe(EarlyClose, early_closes);
     errdefer alloc.free(early);
-    custom_mutex.lock();
-    defer custom_mutex.unlock();
+    custom_mutex.lockUncancelable(runtime.io);
+    defer custom_mutex.unlock(runtime.io);
     // replace an existing calendar with the same name
     var slot: ?usize = null;
     for (custom_slots, 0..) |s, i| if (s) |c| if (std.mem.eql(u8, c.name, name)) {
@@ -714,7 +715,7 @@ test "custom calendar registry" {
     try testing.expect(get(0) == null);
     try testing.expectEqualStrings("lse", get(5).?.name);
     // a 4-day week with a lunch break-free 10:00-15:00 in UTC+9, one holiday and one early close
-    var weekly: [7]?DaySession = .{null} ** 7;
+    var weekly: [7]?DaySession = @splat(null);
     for (0..4) |i| weekly[i] = .{ .open_sec = 10 * 3600, .close_sec = 15 * 3600 };
     const hol = [_]i32{@intCast(daysFromCivil(2025, 9, 9))};
     const early = [_]EarlyClose{.{ .day = @intCast(daysFromCivil(2025, 9, 10)), .close_sec = 12 * 3600 }};

@@ -220,7 +220,7 @@ test "warm-up lengths: first valid index equals the documented lookback" {
         defer a.free(bufs);
         var outs: [8][]f64 = undefined;
         for (0..n_out) |j| outs[j] = bufs[j * n .. (j + 1) * n];
-        try ind.compute(.{ .kind = @intFromEnum(cs.kind) }, cols, outs[0..n_out], a);
+        try ind.compute(.{ .kind = @backingInt(cs.kind) }, cols, outs[0..n_out], a);
         const fv = ind.firstValid(outs[0]);
         if (fv != cs.first) {
             std.debug.print("{s}: first valid {d}, expected {d}\n", .{ @tagName(cs.kind), fv, cs.first });
@@ -234,8 +234,8 @@ test "warm-up lengths: first valid index equals the documented lookback" {
 /// A spec with the mandatory parameters filled in for kinds that need them.
 fn specFor(k: ind.Kind) ind.Spec {
     return switch (k) {
-        .session_vwap, .session_range, .opening_range, .pivots => .{ .kind = @intFromEnum(k), .param = 86_400 },
-        else => .{ .kind = @intFromEnum(k) },
+        .session_vwap, .session_range, .opening_range, .pivots => .{ .kind = @backingInt(k), .param = 86_400 },
+        else => .{ .kind = @backingInt(k) },
     };
 }
 
@@ -274,7 +274,7 @@ test "warmup recommendation converges the first in-window EMA value" {
     const full = try a.alloc(f64, n);
     defer a.free(full);
     try ind.ema(x, 20, full);
-    const p = try ind.resolve(.{ .kind = @intFromEnum(ind.Kind.ema), .period = 20 });
+    const p = try ind.resolve(.{ .kind = @backingInt(ind.Kind.ema), .period = 20 });
     const w = ind.warmup(p);
     const start: usize = 3000;
     const part = try a.alloc(f64, n - (start - w));
@@ -356,7 +356,7 @@ test "snapshot fields agree with individual kernels" {
 test "kind registry: names and output counts are consistent" {
     for (ind.all_kinds) |k| {
         try std.testing.expectEqual(ind.outputCount(k), ind.outputNames(k).len);
-        try std.testing.expect(ind.Kind.fromInt(@intFromEnum(k)) == k);
+        try std.testing.expect(ind.Kind.fromInt(@backingInt(k)) == k);
         const p = try ind.resolve(specFor(k));
         _ = ind.warmup(p);
     }

@@ -424,16 +424,16 @@ pub fn rank(values: []const f64, out: []f64) void {
 // ---------------------------------------------------------------------------
 
 fn nanRow(row: *Row, index: usize) void {
-    inline for (@typeInfo(Row).@"struct".fields) |f| {
-        if (f.type == f64) @field(row.*, f.name) = nan;
+    inline for (@typeInfo(Row).@"struct".field_names, @typeInfo(Row).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64) @field(row.*, f_name) = nan;
     }
     row.max_corr_index = index;
 }
 
 fn nanSummary() Summary {
     var s: Summary = undefined;
-    inline for (@typeInfo(Summary).@"struct".fields) |f| {
-        if (f.type == f64) @field(s, f.name) = nan;
+    inline for (@typeInfo(Summary).@"struct".field_names, @typeInfo(Summary).@"struct".field_types) |f_name, f_type| {
+        if (f_type == f64) @field(s, f_name) = nan;
     }
     s.n_tickers = 0;
     s.n_bars = 0;

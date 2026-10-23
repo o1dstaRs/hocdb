@@ -1,0 +1,14 @@
+Writing data points for GROWING...
+Wrote: ts=1792771504, price=100.00, vol=1000.00
+Wrote: ts=1792771564, price=101.50, vol=1010.00
+Wrote: ts=1792771624, price=103.00, vol=1020.00
+Wrote: ts=1792771684, price=104.50, vol=1030.00
+Wrote: ts=1792771744, price=106.00, vol=1040.00
+
+Loading data points back into memory...
+Read: ts=1792771504, price=100.00, vol=1000.00
+Read: ts=1792771564, price=101.50, vol=1010.00
+Read: ts=1792771624, price=103.00, vol=1020.00
+Read: ts=1792771684, price=104.50, vol=1030.00
+Read: ts=1792771744, price=106.00, vol=1040.00
+Loaded 5 records.

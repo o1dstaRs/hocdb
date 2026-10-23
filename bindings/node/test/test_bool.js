@@ -2,7 +2,7 @@ const { dbInit } = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_bool');
+const DATA_DIR = path.join(__dirname, '..', '..', '..', 'b_node_test_data', 'bool');
 if (fs.existsSync(DATA_DIR)) fs.rmSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -12,7 +12,7 @@ const schema = [
 ];
 
 console.log('Initializing DB...');
-const db = dbInit('BOOL_TEST', TEST_DIR, schema);
+const db = dbInit('BOOL_TEST', DATA_DIR, schema);
 
 // Append
 console.log('Appending data...');
@@ -47,3 +47,5 @@ if (filteredFalse[0].timestamp !== 200n) throw new Error('FilteredFalse 0 timest
 
 console.log('✅ Boolean test passed!');
 db.close();
+
+fs.rmSync(DATA_DIR, { recursive: true, force: true });

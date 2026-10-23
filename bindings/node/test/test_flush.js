@@ -5,7 +5,7 @@ const hocdb = require('../index.js');
 const fs = require('fs');
 const path = require('path');
 
-const testDir = './test_flush_data';
+const testDir = path.join(__dirname, '..', '..', '..', 'b_node_test_data', 'flush');
 
 function rmrf(dir) {
     if (fs.existsSync(dir)) {

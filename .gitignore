@@ -6,6 +6,7 @@ zig-out/
 *.dylib
 *.dll
 bindings/python/__pycache__/
+__pycache__/
 
 # Temporary files
 .DS_Store

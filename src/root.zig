@@ -1,4 +1,5 @@
 const std = @import("std");
+pub const runtime = @import("runtime.zig");
 
 /// Technical indicators and quantitative analytics kernels.
 pub const indicators = @import("indicators.zig");
@@ -85,11 +86,11 @@ pub const Schema = struct {
     }
 };
 
-const Dir = std.fs.Dir;
-const File = std.fs.File;
+const Dir = std.Io.Dir;
+const File = std.Io.File;
 
 fn cwd() Dir {
-    return std.fs.cwd();
+    return std.Io.Dir.cwd();
 }
 
 pub const DynamicTimeSeriesDB = struct {
@@ -200,7 +201,7 @@ pub const DynamicTimeSeriesDB = struct {
     const OFF_FLAGS: u64 = 6;
     const OFF_LAST_TS: u64 = 48;
     const OFF_COMMIT_WALL: u64 = 56;
-    const Crc = std.hash.crc.Crc32Iscsi;
+    const Crc = @import("crc32c.zig").Crc32c;
 
     pub const HeaderInfo = struct {
         version: u16,
@@ -219,6 +220,7 @@ pub const DynamicTimeSeriesDB = struct {
     // Custom Buffered Writer
     const BLOCK_SIZE = 4096;
     const BufferedWriter = struct {
+        io: std.Io,
         file: File,
         buffer: [BLOCK_SIZE]u8 = undefined,
         index: usize = 0,
@@ -229,8 +231,9 @@ pub const DynamicTimeSeriesDB = struct {
         is_wrapped: *bool,
         record_size: usize,
 
-        pub fn init(file: File, max_size: u64, header_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool, rec_size: usize) @This() {
+        pub fn init(io: std.Io, file: File, max_size: u64, header_size: u64, cursor: *u64, overwrite: bool, wrapped: *bool, rec_size: usize) @This() {
             return .{
+                .io = io,
                 .file = file,
                 .buffer = undefined,
                 .index = 0,
@@ -265,7 +268,7 @@ pub const DynamicTimeSeriesDB = struct {
                     continue;
                 }
 
-                try self.file.pwriteAll(remaining[0..chunk_size], self.write_cursor.*);
+                try self.file.writePositionalAll(self.io, remaining[0..chunk_size], self.write_cursor.*);
                 self.write_cursor.* += chunk_size;
                 remaining = remaining[chunk_size..];
             }
@@ -284,6 +287,7 @@ pub const DynamicTimeSeriesDB = struct {
         }
     };
 
+    io: std.Io,
     file: File,
     buffered_writer: BufferedWriter,
     writer_ready: bool = false,
@@ -309,7 +313,7 @@ pub const DynamicTimeSeriesDB = struct {
     last_fsync_ns: i64 = 0,
     file_inode: u64 = 0,
     metrics: Metrics = .{},
-    read_hist: [40]u64 = [_]u64{0} ** 40,
+    read_hist: [40]u64 = @as([40]u64, @splat(0)),
     in_maintenance: bool = false,
 
     // Schema info
@@ -320,17 +324,17 @@ pub const DynamicTimeSeriesDB = struct {
     full_path: []const u8,
 
     // In-memory Sparse Index (Linear mode only)
-    sparse_index: std.ArrayListUnmanaged(IndexEntry) = .{},
+    sparse_index: std.ArrayListUnmanaged(IndexEntry) = .empty,
     index_stride: u64,
 
     allocator: std.mem.Allocator,
 
-    fn wallNs() i64 {
-        return @intCast(@as(i128, @intCast(std.time.nanoTimestamp())));
+    fn wallNs(io: std.Io) i64 {
+        return @intCast(std.Io.Timestamp.now(io, .real).nanoseconds);
     }
 
-    fn readHeaderBytes(file: File, buf: []u8) !void {
-        const n = try file.preadAll(buf, 0);
+    fn readHeaderBytes(io: std.Io, file: File, buf: []u8) !void {
+        const n = try file.readPositionalAll(io, buf, 0);
         if (n != buf.len) return error.UnexpectedEndOfFile;
     }
 
@@ -344,7 +348,7 @@ pub const DynamicTimeSeriesDB = struct {
     }
 
     fn buildHeaderV2(schema_hash: u64, record_size: usize, committed: u64, wrapped: bool, crc: u32, crc_valid: bool, max_file_size: u64, last_ts: i64, wall: i64, unit_ns: u64, calendar_id: u32) [HEADER_SIZE_V2]u8 {
-        var h: [HEADER_SIZE_V2]u8 = [_]u8{0} ** HEADER_SIZE_V2;
+        var h: [HEADER_SIZE_V2]u8 = @as([HEADER_SIZE_V2]u8, @splat(0));
         @memcpy(h[0..4], &MAGIC_V2);
         std.mem.writeInt(u16, h[4..6], 2, .little);
         std.mem.writeInt(u16, h[6..8], headerFlags(crc_valid, calendar_id), .little);
@@ -387,26 +391,36 @@ pub const DynamicTimeSeriesDB = struct {
     /// Open (or create) a database for writing. Fails with
     /// `error.DatabaseLocked` when another writer holds the file.
     pub fn init(ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema, config: Config) !Self {
-        return initMode(ticker, dir_path, allocator, schema, config, false);
+        return initWithIo(runtime.io, ticker, dir_path, allocator, schema, config);
     }
 
     /// Attach to a database that another process writes. No lock is taken;
     /// every read re-reads the writer's committed cursor (see `refresh`).
     /// Appends and maintenance operations fail with `error.ReadOnly`.
     pub fn openReader(ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema) !Self {
-        return initMode(ticker, dir_path, allocator, schema, .{}, true);
+        return openReaderWithIo(runtime.io, ticker, dir_path, allocator, schema);
     }
 
-    fn initMode(ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema, config: Config, read_only: bool) !Self {
+    /// The caller owns the I/O implementation and must keep it alive until deinit.
+    pub fn initWithIo(io: std.Io, ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema, config: Config) !Self {
+        return initMode(io, ticker, dir_path, allocator, schema, config, false);
+    }
+
+    pub fn openReaderWithIo(io: std.Io, ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema) !Self {
+        return initMode(io, ticker, dir_path, allocator, schema, .{}, true);
+    }
+
+    fn initMode(io: std.Io, ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, schema: Schema, config: Config, read_only: bool) !Self {
         const record_size = schema.recordSize();
         if (record_size == 0) return error.InvalidSchema;
+        if (config.index_stride == 0) return error.InvalidIndexStride;
         const ts_offset = schema.timestampOffset() orelse return error.MissingTimestampField;
         const schema_hash = schema.computeHash();
         if (config.max_file_size < HEADER_SIZE_V2 + record_size) return error.MaxFileSizeTooSmall;
 
         if (!read_only) {
-            var dir = try cwd().makeOpenPath(dir_path, .{});
-            dir.close();
+            var dir = try cwd().createDirPathOpen(io, dir_path, .{});
+            dir.close(io);
         }
         const filename = try std.fmt.allocPrint(allocator, "{s}.bin", .{ticker});
         defer allocator.free(filename);
@@ -414,23 +428,34 @@ pub const DynamicTimeSeriesDB = struct {
         errdefer allocator.free(full_path);
 
         var file: File = undefined;
-        if (cwd().openFile(full_path, .{ .mode = if (read_only) .read_only else .read_write })) |f| {
+        if (cwd().openFile(io, full_path, .{ .mode = if (read_only) .read_only else .read_write })) |f| {
             file = f;
         } else |err| {
             if (err == error.FileNotFound and !read_only) {
-                file = try cwd().createFile(full_path, .{ .read = true, .truncate = false });
+                file = try cwd().createFile(io, full_path, .{ .read = true, .truncate = false });
             } else {
                 return err;
             }
         }
-        errdefer file.close();
+        errdefer file.close(io);
         if (!read_only) {
-            const locked = try file.tryLock(.exclusive);
+            const locked = try file.tryLock(io, .exclusive);
             if (!locked) return error.DatabaseLocked;
         }
-        errdefer if (!read_only) file.unlock();
+        errdefer if (!read_only) file.unlock(io);
 
-        const stat = try file.stat();
+        if (!read_only) {
+            // Some shared-folder implementations report success for conflicting
+            // locks. Refuse writers when a second open can take our lock too.
+            const probe = try cwd().openFile(io, full_path, .{ .mode = .read_write });
+            defer probe.close(io);
+            if (try probe.tryLock(io, .exclusive)) {
+                probe.unlock(io);
+                return error.FileLocksUnsupported;
+            }
+        }
+
+        const stat = try file.stat(io);
         var header_size: u64 = HEADER_SIZE_V2;
         var format_version: u16 = 2;
         var last_timestamp: ?i64 = null;
@@ -455,12 +480,12 @@ pub const DynamicTimeSeriesDB = struct {
             if (read_only) return error.EmptyDatabase;
             const data_capacity = config.max_file_size - HEADER_SIZE_V2;
             effective_max_size = HEADER_SIZE_V2 + (data_capacity / record_size) * record_size;
-            const h = buildHeaderV2(schema_hash, record_size, HEADER_SIZE_V2, false, 0, true, effective_max_size, 0, wallNs(), config.timestamp_unit_ns, config.calendar);
-            try file.pwriteAll(&h, 0);
+            const h = buildHeaderV2(schema_hash, record_size, HEADER_SIZE_V2, false, 0, true, effective_max_size, 0, wallNs(io), config.timestamp_unit_ns, config.calendar);
+            try file.writePositionalAll(io, &h, 0);
         } else {
             if (stat.size < HEADER_SIZE_V1) return error.InvalidFile;
             var magic: [4]u8 = undefined;
-            try readHeaderBytes(file, &magic);
+            try readHeaderBytes(io, file, &magic);
             if (std.mem.eql(u8, &magic, &MAGIC_V1)) {
                 // ---- legacy layout ------------------------------------------
                 if (read_only) return error.LegacyFormatNeedsMigration;
@@ -468,11 +493,11 @@ pub const DynamicTimeSeriesDB = struct {
                 header_size = HEADER_SIZE_V1;
                 crc_valid = false;
                 var hb: [HEADER_SIZE_V1]u8 = undefined;
-                try readHeaderBytes(file, &hb);
+                try readHeaderBytes(io, file, &hb);
                 if (std.mem.bytesToValue(u64, hb[4..12]) != schema_hash) return error.SchemaMismatch;
                 const data_capacity = config.max_file_size - HEADER_SIZE_V1;
                 effective_max_size = HEADER_SIZE_V1 + (data_capacity / record_size) * record_size;
-                const rec = try recoverLegacy(file, stat.size, effective_max_size, record_size, ts_offset, allocator);
+                const rec = try recoverLegacy(io, file, stat.size, effective_max_size, record_size, ts_offset, allocator);
                 write_cursor = rec.cursor;
                 is_wrapped = rec.wrapped;
                 last_timestamp = rec.last_timestamp;
@@ -481,7 +506,7 @@ pub const DynamicTimeSeriesDB = struct {
                 needs_migration = config.auto_migrate;
             } else if (std.mem.eql(u8, &magic, &MAGIC_V2)) {
                 var hb: [HEADER_SIZE_V2]u8 = undefined;
-                try readHeaderBytes(file, &hb);
+                try readHeaderBytes(io, file, &hb);
                 const info = try parseHeaderV2(&hb);
                 header_unit = info.timestamp_unit_ns;
                 header_cal = info.calendar_id;
@@ -502,16 +527,16 @@ pub const DynamicTimeSeriesDB = struct {
                     // header update) are adopted when they are complete and keep
                     // the timestamp order; anything else is truncated away.
                     if (!is_wrapped and stat.size > committed_cursor) {
-                        const tail = try recoverTail(file, committed_cursor, stat.size, record_size, ts_offset, last_timestamp, allocator);
+                        const tail = try recoverTail(io, file, committed_cursor, stat.size, record_size, ts_offset, last_timestamp, allocator);
                         recovered = tail.records;
                         write_cursor = committed_cursor + recovered * record_size;
                         if (recovered > 0) last_timestamp = tail.last_timestamp;
                         dropped_bytes = stat.size - write_cursor;
-                        if (dropped_bytes > 0) try file.setEndPos(write_cursor);
+                        if (dropped_bytes > 0) try file.setLength(io, write_cursor);
                         if (recovered > 0) {
                             // rebuild the checksum over the adopted tail; it is
                             // published (with the new cursor) at the next commit
-                            crc_state = try computeCrcState(file, header_size, write_cursor, allocator);
+                            crc_state = try computeCrcState(io, file, header_size, write_cursor, allocator);
                             header_crc = crc_state.final();
                             crc_valid = true;
                         }
@@ -521,12 +546,12 @@ pub const DynamicTimeSeriesDB = struct {
                 }
                 if (crc_valid and !is_wrapped) {
                     if (config.verify_on_open) {
-                        const computed = try computeCrc(file, header_size, committed_cursor, allocator);
+                        const computed = try computeCrc(io, file, header_size, committed_cursor, allocator);
                         if (computed != header_crc) return error.ChecksumMismatch;
                     }
                     if (!read_only and recovered == 0) {
                         // rebuild the running checksum so later appends extend it
-                        crc_state = try computeCrcState(file, header_size, committed_cursor, allocator);
+                        crc_state = try computeCrcState(io, file, header_size, committed_cursor, allocator);
                         if (config.verify_on_open == false and committed_cursor > header_size and crc_state.final() != header_crc) {
                             // The committed data no longer matches its stored checksum
                             // (corrupted while closed). Keep the data readable, count the
@@ -544,17 +569,19 @@ pub const DynamicTimeSeriesDB = struct {
         if (config.auto_increment and last_timestamp == null) last_timestamp = 0;
 
         const fields_copy = try allocator.alloc(FieldInfo, schema.fields.len);
-        errdefer allocator.free(fields_copy);
+        var copied_fields: usize = 0;
+        errdefer {
+            for (fields_copy[0..copied_fields]) |f| allocator.free(f.name);
+            allocator.free(fields_copy);
+        }
         for (schema.fields, 0..) |f, i| {
             const name_copy = try allocator.dupe(u8, f.name);
-            errdefer {
-                for (0..i) |j| allocator.free(fields_copy[j].name);
-                allocator.free(fields_copy);
-            }
             fields_copy[i] = .{ .name = name_copy, .type = f.type };
+            copied_fields += 1;
         }
 
         var self = Self{
+            .io = io,
             .file = file,
             .buffered_writer = undefined, // initWriter
             .last_timestamp = last_timestamp,
@@ -572,7 +599,7 @@ pub const DynamicTimeSeriesDB = struct {
             .crc_state = crc_state,
             .crc_valid = crc_valid,
             .config = config,
-            .last_fsync_ns = wallNs(),
+            .last_fsync_ns = wallNs(io),
             .file_inode = stat.inode,
             .record_size = record_size,
             .timestamp_offset = ts_offset,
@@ -580,7 +607,7 @@ pub const DynamicTimeSeriesDB = struct {
             .fields = fields_copy,
             .allocator = allocator,
             .full_path = full_path,
-            .sparse_index = .{},
+            .sparse_index = .empty,
             .index_stride = config.index_stride,
         };
         self.metrics.recovered_tail_records = recovered;
@@ -604,18 +631,18 @@ pub const DynamicTimeSeriesDB = struct {
 
     /// Legacy (HOC1) cursor recovery: file size in linear mode, a scan for the
     /// wrap point in ring mode.
-    fn recoverLegacy(file: File, size: u64, effective_max_size: u64, record_size: usize, ts_offset: usize, allocator: std.mem.Allocator) !LegacyRecovery {
+    fn recoverLegacy(io: std.Io, file: File, size: u64, effective_max_size: u64, record_size: usize, ts_offset: usize, allocator: std.mem.Allocator) !LegacyRecovery {
         const hs = HEADER_SIZE_V1;
         if (size < effective_max_size) {
             const usable = size - ((size - hs) % record_size); // drop a torn tail record
             var last: ?i64 = null;
             if (usable > hs) {
                 var buf: [8]u8 = undefined;
-                const n = try file.preadAll(&buf, usable - record_size + ts_offset);
+                const n = try file.readPositionalAll(io, &buf, usable - record_size + ts_offset);
                 if (n != 8) return error.UnexpectedEndOfFile;
                 last = std.mem.bytesToValue(i64, &buf);
             }
-            if (usable != size) try file.setEndPos(usable);
+            if (usable != size) try file.setLength(io, usable);
             return .{ .cursor = usable, .wrapped = false, .last_timestamp = last };
         }
         // ring buffer: find the first decreasing timestamp
@@ -630,7 +657,7 @@ pub const DynamicTimeSeriesDB = struct {
         var idx: u64 = 0;
         while (idx < total and !found) {
             const cnt = @min(batch, total - idx);
-            const n = try file.preadAll(buf[0 .. cnt * record_size], hs + idx * record_size);
+            const n = try file.readPositionalAll(io, buf[0 .. cnt * record_size], hs + idx * record_size);
             if (n != cnt * record_size) return error.UnexpectedEndOfFile;
             for (0..cnt) |i| {
                 const ts = std.mem.bytesToValue(i64, buf[i * record_size + ts_offset .. i * record_size + ts_offset + 8]);
@@ -655,7 +682,7 @@ pub const DynamicTimeSeriesDB = struct {
 
     /// Validate records in [from, to): complete and with strictly increasing
     /// timestamps continuing `last`. Returns how many are acceptable.
-    fn recoverTail(file: File, from: u64, to: u64, record_size: usize, ts_offset: usize, last: ?i64, allocator: std.mem.Allocator) !TailRecovery {
+    fn recoverTail(io: std.Io, file: File, from: u64, to: u64, record_size: usize, ts_offset: usize, last: ?i64, allocator: std.mem.Allocator) !TailRecovery {
         const bytes = to - from;
         const full = bytes / record_size;
         var prev: i64 = last orelse std.math.minInt(i64);
@@ -666,7 +693,7 @@ pub const DynamicTimeSeriesDB = struct {
         var idx: u64 = 0;
         outer: while (idx < full) {
             const cnt = @min(batch, full - idx);
-            const n = try file.preadAll(buf[0 .. cnt * record_size], from + idx * record_size);
+            const n = try file.readPositionalAll(io, buf[0 .. cnt * record_size], from + idx * record_size);
             if (n != cnt * record_size) break;
             for (0..cnt) |i| {
                 const ts = std.mem.bytesToValue(i64, buf[i * record_size + ts_offset .. i * record_size + ts_offset + 8]);
@@ -680,7 +707,7 @@ pub const DynamicTimeSeriesDB = struct {
         return .{ .records = ok, .last_timestamp = prev };
     }
 
-    fn computeCrcState(file: File, from: u64, to: u64, allocator: std.mem.Allocator) !Crc {
+    fn computeCrcState(io: std.Io, file: File, from: u64, to: u64, allocator: std.mem.Allocator) !Crc {
         var h = Crc.init();
         if (to <= from) return h;
         const buf = try allocator.alloc(u8, 1 << 20);
@@ -688,7 +715,7 @@ pub const DynamicTimeSeriesDB = struct {
         var pos = from;
         while (pos < to) {
             const n = @min(buf.len, to - pos);
-            const got = try file.preadAll(buf[0..n], pos);
+            const got = try file.readPositionalAll(io, buf[0..n], pos);
             if (got != n) return error.UnexpectedEndOfFile;
             h.update(buf[0..n]);
             pos += n;
@@ -696,8 +723,8 @@ pub const DynamicTimeSeriesDB = struct {
         return h;
     }
 
-    fn computeCrc(file: File, from: u64, to: u64, allocator: std.mem.Allocator) !u32 {
-        var h = try computeCrcState(file, from, to, allocator);
+    fn computeCrc(io: std.Io, file: File, from: u64, to: u64, allocator: std.mem.Allocator) !u32 {
+        var h = try computeCrcState(io, file, from, to, allocator);
         return h.final();
     }
 
@@ -707,14 +734,14 @@ pub const DynamicTimeSeriesDB = struct {
         try self.flush();
         if (self.format_version != 2 or self.is_wrapped or !self.crc_valid) return error.ChecksumUnavailable;
         const stored = try self.storedCrc();
-        const computed = try computeCrc(self.file, self.header_size, self.committed_cursor, self.allocator);
+        const computed = try computeCrc(self.io, self.file, self.header_size, self.committed_cursor, self.allocator);
         if (computed != stored) self.metrics.crc_failures += 1;
         return computed == stored;
     }
 
     fn storedCrc(self: *Self) !u32 {
         var b: [4]u8 = undefined;
-        const n = try self.file.preadAll(&b, OFF_CRC);
+        const n = try self.file.readPositionalAll(self.io, &b, OFF_CRC);
         if (n != 4) return error.UnexpectedEndOfFile;
         return std.mem.readInt(u32, &b, .little);
     }
@@ -725,7 +752,7 @@ pub const DynamicTimeSeriesDB = struct {
             return HeaderInfo{ .version = 1, .header_size = HEADER_SIZE_V1, .committed_cursor = self.write_cursor, .committed_wrapped = self.is_wrapped, .crc = 0, .crc_valid = false, .last_timestamp = self.last_timestamp orelse 0, .last_commit_wall_ns = 0, .max_file_size = self.max_file_size };
         }
         var hb: [HEADER_SIZE_V2]u8 = undefined;
-        try readHeaderBytes(self.file, &hb);
+        try readHeaderBytes(self.io, self.file, &hb);
         return parseHeaderV2(&hb);
     }
 
@@ -761,7 +788,7 @@ pub const DynamicTimeSeriesDB = struct {
 
     // Post-init to set up self-referencing buffered writer
     pub fn initWriter(self: *Self) !void {
-        self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
+        self.buffered_writer = BufferedWriter.init(self.io, self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
         self.writer_ready = true;
         try self.buildIndex();
     }
@@ -771,10 +798,10 @@ pub const DynamicTimeSeriesDB = struct {
             self.flush() catch |err| {
                 std.debug.print("ERROR: Failed to flush in deinit: {}\n", .{err});
             };
-            if (self.config.fsync != .none) self.file.sync() catch {};
-            self.file.unlock();
+            if (self.config.fsync != .none) self.file.sync(self.io) catch {};
+            self.file.unlock(self.io);
         }
-        self.file.close();
+        self.file.close(self.io);
         for (self.fields) |f| self.allocator.free(f.name);
         self.allocator.free(self.fields);
         self.allocator.free(self.full_path);
@@ -784,11 +811,11 @@ pub const DynamicTimeSeriesDB = struct {
     pub fn drop(self: *Self) !void {
         if (self.read_only) return error.ReadOnly;
         // Close the file first
-        self.file.unlock();
-        self.file.close();
+        self.file.unlock(self.io);
+        self.file.close(self.io);
 
         // Delete the file
-        try cwd().deleteFile(self.full_path);
+        try cwd().deleteFile(self.io, self.full_path);
 
         // Free resources (similar to deinit but we don't close file again)
         for (self.fields) |f| self.allocator.free(f.name);
@@ -806,13 +833,14 @@ pub const DynamicTimeSeriesDB = struct {
         const pending = self.buffered_writer.index > 0;
         if (pending) {
             try self.buffered_writer.flush();
+            if (self.is_wrapped) self.sparse_index.clearAndFree(self.allocator);
             self.metrics.flushes += 1;
         }
         if (pending or self.write_cursor != self.committed_cursor or self.is_wrapped != self.committed_wrapped) {
             try self.commit();
         }
         if (self.config.fsync == .interval and !self.in_maintenance) {
-            const now = wallNs();
+            const now = wallNs(self.io);
             if (now - self.last_fsync_ns >= @as(i64, self.config.fsync_interval_ms) * std.time.ns_per_ms and self.metrics.commits > 0) {
                 try self.fsyncNow();
             }
@@ -824,23 +852,23 @@ pub const DynamicTimeSeriesDB = struct {
     fn commit(self: *Self) anyerror!void {
         if (self.is_wrapped) self.crc_valid = false;
         if (self.format_version == 2) {
-            const now = wallNs();
-            var w: [8]u8 = undefined;
-            std.mem.writeInt(i64, &w, self.last_timestamp orelse 0, .little);
-            try self.file.pwriteAll(&w, OFF_LAST_TS);
-            std.mem.writeInt(i64, &w, now, .little);
-            try self.file.pwriteAll(&w, OFF_COMMIT_WALL);
-            var c: [4]u8 = undefined;
-            std.mem.writeInt(u32, &c, if (self.crc_valid) self.crc_state.final() else 0, .little);
-            try self.file.pwriteAll(&c, OFF_CRC);
+            const now = wallNs(self.io);
+            // Publish adjacent metadata together, then the state word last.
+            // Readers and recovery retain the same commit boundary.
+            var metadata: [32]u8 = undefined;
+            std.mem.writeInt(u32, metadata[0..4], if (self.crc_valid) self.crc_state.final() else 0, .little);
+            std.mem.writeInt(u32, metadata[4..8], unitWord(self.config.timestamp_unit_ns), .little);
+            std.mem.writeInt(u64, metadata[8..16], self.max_file_size, .little);
+            std.mem.writeInt(i64, metadata[16..24], self.last_timestamp orelse 0, .little);
+            std.mem.writeInt(i64, metadata[24..32], now, .little);
+            try self.file.writePositionalAll(self.io, &metadata, OFF_CRC);
             var f: [2]u8 = undefined;
             std.mem.writeInt(u16, &f, headerFlags(self.crc_valid, self.calendar_id), .little);
-            try self.file.pwriteAll(&f, OFF_FLAGS);
-            std.mem.writeInt(u32, &c, unitWord(self.config.timestamp_unit_ns), .little);
-            try self.file.pwriteAll(&c, OFF_UNIT);
+            try self.file.writePositionalAll(self.io, &f, OFF_FLAGS);
             // the committed-state word goes last: readers key on it
+            var w: [8]u8 = undefined;
             std.mem.writeInt(u64, &w, self.write_cursor | (if (self.is_wrapped) WRAP_BIT else 0), .little);
-            try self.file.pwriteAll(&w, OFF_COMMITTED);
+            try self.file.writePositionalAll(self.io, &w, OFF_COMMITTED);
             self.metrics.last_commit_wall_ns = now;
         }
         self.committed_cursor = self.write_cursor;
@@ -850,13 +878,13 @@ pub const DynamicTimeSeriesDB = struct {
     }
 
     fn fsyncNow(self: *Self) !void {
-        var t = try std.time.Timer.start();
-        try self.file.sync();
+        var t = runtime.Timer.startWithIo(self.io);
+        try self.file.sync(self.io);
         const ns = t.read();
         self.metrics.fsyncs += 1;
         self.metrics.fsync_ns_total += ns;
         if (ns > self.metrics.fsync_ns_max) self.metrics.fsync_ns_max = ns;
-        self.last_fsync_ns = wallNs();
+        self.last_fsync_ns = wallNs(self.io);
     }
 
     /// Flush and fsync now, whatever the policy.
@@ -872,14 +900,14 @@ pub const DynamicTimeSeriesDB = struct {
         if (!self.read_only) return;
         self.metrics.refreshes += 1;
         // The writer may have replaced the file (compaction / rollover).
-        if (cwd().statFile(self.full_path)) |st| {
+        if (cwd().statFile(self.io, self.full_path, .{})) |st| {
             if (st.inode != self.file_inode) {
-                const f = try cwd().openFile(self.full_path, .{ .mode = .read_only });
-                self.file.close();
+                const f = try cwd().openFile(self.io, self.full_path, .{ .mode = .read_only });
+                self.file.close(self.io);
                 self.file = f;
                 self.file_inode = st.inode;
                 var hb: [HEADER_SIZE_V2]u8 = undefined;
-                try readHeaderBytes(self.file, &hb);
+                try readHeaderBytes(self.io, self.file, &hb);
                 if (!std.mem.eql(u8, hb[0..4], &MAGIC_V2)) return error.InvalidMagic;
                 const info = try parseHeaderV2(&hb);
                 if (self.config.timestamp_unit_ns == 0) self.config.timestamp_unit_ns = info.timestamp_unit_ns;
@@ -891,13 +919,13 @@ pub const DynamicTimeSeriesDB = struct {
                 self.committed_wrapped = self.is_wrapped;
                 self.last_timestamp = if (self.count() > 0) info.last_timestamp else null;
                 self.metrics.last_commit_wall_ns = info.last_commit_wall_ns;
-                self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
+                self.buffered_writer = BufferedWriter.init(self.io, self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
                 try self.buildIndex();
                 return;
             }
         } else |_| {}
         var w: [8]u8 = undefined;
-        const n = try self.file.preadAll(&w, OFF_COMMITTED);
+        const n = try self.file.readPositionalAll(self.io, &w, OFF_COMMITTED);
         if (n != 8) return error.UnexpectedEndOfFile;
         const committed = std.mem.readInt(u64, &w, .little);
         const cursor = committed & ~WRAP_BIT;
@@ -909,11 +937,11 @@ pub const DynamicTimeSeriesDB = struct {
         self.committed_cursor = cursor;
         self.committed_wrapped = wrapped;
         var t: [8]u8 = undefined;
-        if (try self.file.preadAll(&t, OFF_LAST_TS) == 8) {
+        if (try self.file.readPositionalAll(self.io, &t, OFF_LAST_TS) == 8) {
             self.last_timestamp = std.mem.readInt(i64, &t, .little);
             self.metrics.last_record_ts = self.last_timestamp.?;
         }
-        if (try self.file.preadAll(&t, OFF_COMMIT_WALL) == 8) self.metrics.last_commit_wall_ns = std.mem.readInt(i64, &t, .little);
+        if (try self.file.readPositionalAll(self.io, &t, OFF_COMMIT_WALL) == 8) self.metrics.last_commit_wall_ns = std.mem.readInt(i64, &t, .little);
         if (wrapped) {
             self.sparse_index.clearAndFree(self.allocator);
         } else {
@@ -925,62 +953,49 @@ pub const DynamicTimeSeriesDB = struct {
         if (self.read_only) return error.ReadOnly;
         if (!self.writer_ready) return error.WriterNotInitialized;
         if (data.len != self.record_size) return error.InvalidRecordSize;
+        if (!self.overwrite_on_full and
+            self.write_cursor + self.buffered_writer.index + data.len > self.max_file_size)
+            return error.DiskFull;
+
+        const ts = if (self.auto_increment)
+            std.math.add(i64, self.last_timestamp orelse 0, 1) catch return error.TimestampOverflow
+        else
+            std.mem.bytesToValue(i64, data[self.timestamp_offset..][0..8]);
+        if (!self.auto_increment) {
+            if (self.last_timestamp) |last| if (ts <= last) return error.TimestampNotMonotonic;
+        }
+        const needs_index = !self.auto_increment and !self.is_wrapped;
+        const record_index = if (needs_index) ((self.write_cursor - self.header_size) + self.buffered_writer.index) / self.record_size else 0;
+        const index_record = needs_index and record_index % self.index_stride == 0;
+        // Reserve before accepting the record, so allocation failure cannot
+        // leave a rejected append in the buffer or its running checksum.
+        if (index_record) try self.sparse_index.ensureUnusedCapacity(self.allocator, 1);
 
         if (self.auto_increment) {
-            // Increment timestamp
-            const new_ts = (self.last_timestamp orelse 0) + 1;
-            self.last_timestamp = new_ts;
-
-            var mut_data = try self.allocator.alloc(u8, data.len);
-            defer self.allocator.free(mut_data);
+            var scratch: [256]u8 = undefined;
+            const mut_data = if (data.len <= scratch.len) scratch[0..data.len] else try self.allocator.alloc(u8, data.len);
+            defer if (data.len > scratch.len) self.allocator.free(mut_data);
             @memcpy(mut_data, data);
-
-            const ts_bytes = std.mem.asBytes(&new_ts);
-            @memcpy(mut_data[self.timestamp_offset .. self.timestamp_offset + 8], ts_bytes);
-
-            if (self.crc_valid and !self.is_wrapped) self.crc_state.update(mut_data);
+            @memcpy(mut_data[self.timestamp_offset..][0..8], std.mem.asBytes(&ts));
             try self.buffered_writer.write(mut_data);
-            self.metrics.last_record_ts = new_ts;
+            if (self.crc_valid and !self.is_wrapped) self.crc_state.update(mut_data);
         } else {
-            // Monotonicity Check
-            const ts = std.mem.bytesToValue(i64, data[self.timestamp_offset .. self.timestamp_offset + 8]);
-            if (self.last_timestamp) |last| {
-                if (ts <= last) return error.TimestampNotMonotonic;
-            }
-            self.last_timestamp = ts;
-
-            if (self.crc_valid and !self.is_wrapped) self.crc_state.update(data);
             try self.buffered_writer.write(data);
-            self.metrics.last_record_ts = ts;
+            if (self.crc_valid and !self.is_wrapped) self.crc_state.update(data);
         }
-        if (self.is_wrapped) self.crc_valid = false;
+        self.last_timestamp = ts;
+        self.metrics.last_record_ts = ts;
+        if (self.is_wrapped) {
+            self.crc_valid = false;
+            self.sparse_index.clearAndFree(self.allocator);
+        } else if (index_record) {
+            self.sparse_index.appendAssumeCapacity(.{ .timestamp = ts, .index = record_index });
+        }
         self.metrics.appends += 1;
         self.metrics.bytes_written += data.len;
-        self.metrics.last_append_wall_ns = wallNs();
+        self.metrics.last_append_wall_ns = wallNs(self.io);
         if (self.config.rollover_size > 0 and !self.is_wrapped and !self.in_maintenance and self.write_cursor >= self.config.rollover_size) {
-            try self.flush(); // commits and rolls the file over
-        }
-
-        // Maintain Sparse Index (skip for auto-increment since record index IS the order)
-        if (self.auto_increment) {
-            // No sparse index needed for auto-increment
-        } else if (self.is_wrapped) {
-            // If wrapped, we disable the index for correctness
-            if (self.sparse_index.items.len > 0) {
-                self.sparse_index.clearAndFree(self.allocator);
-            }
-        } else {
-            // Linear, safe to index
-            const logical_bytes = (self.write_cursor - self.header_size) + self.buffered_writer.index;
-            const current_count = logical_bytes / self.record_size;
-
-            if (current_count > 0) {
-                const new_rec_idx = current_count - 1;
-                if (new_rec_idx % self.index_stride == 0) {
-                    const ts = std.mem.bytesToValue(i64, data[self.timestamp_offset .. self.timestamp_offset + 8]);
-                    try self.sparse_index.append(self.allocator, .{ .timestamp = ts, .index = new_rec_idx });
-                }
-            }
+            try self.flush();
         }
 
         if (self.flush_on_write) {
@@ -1018,7 +1033,7 @@ pub const DynamicTimeSeriesDB = struct {
     pub fn readTimestampAt(self: *Self, index: u64) !i64 {
         const offset = self.getPhysicalOffset(index);
         var ts_buf: [8]u8 = undefined;
-        const len = try self.file.preadAll(&ts_buf, offset + self.timestamp_offset);
+        const len = try self.file.readPositionalAll(self.io, &ts_buf, offset + self.timestamp_offset);
         if (len != 8) return error.UnexpectedEndOfFile;
         return std.mem.bytesToValue(i64, &ts_buf);
     }
@@ -1040,11 +1055,11 @@ pub const DynamicTimeSeriesDB = struct {
 
         const tmp_path = try std.fmt.allocPrint(self.allocator, "{s}.rewrite", .{self.full_path});
         defer self.allocator.free(tmp_path);
-        var tmp = try cwd().createFile(tmp_path, .{ .read = true, .truncate = true });
+        var tmp = try cwd().createFile(self.io, tmp_path, .{ .read = true, .truncate = true });
         var tmp_ok = false;
         defer if (!tmp_ok) {
-            tmp.close();
-            cwd().deleteFile(tmp_path) catch {};
+            tmp.close(self.io);
+            cwd().deleteFile(self.io, tmp_path) catch {};
         };
         // copy in logical order, computing the checksum on the way
         var crc = Crc.init();
@@ -1063,10 +1078,10 @@ pub const DynamicTimeSeriesDB = struct {
             }
             n = @min(n, chunk_records);
             const bytes: usize = @intCast(n * self.record_size);
-            const got = try self.file.preadAll(buf[0..bytes], physical);
+            const got = try self.file.readPositionalAll(self.io, buf[0..bytes], physical);
             if (got != bytes) return error.UnexpectedEndOfFile;
             crc.update(buf[0..bytes]);
-            try tmp.pwriteAll(buf[0..bytes], out_pos);
+            try tmp.writePositionalAll(self.io, buf[0..bytes], out_pos);
             out_pos += bytes;
             idx += n;
             last_ts = std.mem.bytesToValue(i64, buf[bytes - self.record_size + self.timestamp_offset .. bytes - self.record_size + self.timestamp_offset + 8]);
@@ -1074,20 +1089,20 @@ pub const DynamicTimeSeriesDB = struct {
         if (keep == 0) last_ts = self.last_timestamp orelse 0;
         const data_capacity = new_max_file_size - HEADER_SIZE_V2;
         const eff_max = HEADER_SIZE_V2 + (data_capacity / self.record_size) * self.record_size;
-        const h = buildHeaderV2(self.schema_hash, self.record_size, out_pos, false, crc.final(), true, eff_max, last_ts, wallNs(), self.config.timestamp_unit_ns, self.calendar_id);
-        try tmp.pwriteAll(&h, 0);
-        try tmp.sync();
-        tmp.close();
+        const h = buildHeaderV2(self.schema_hash, self.record_size, out_pos, false, crc.final(), true, eff_max, last_ts, wallNs(self.io), self.config.timestamp_unit_ns, self.calendar_id);
+        try tmp.writePositionalAll(self.io, &h, 0);
+        try tmp.sync(self.io);
+        tmp.close(self.io);
         tmp_ok = true;
         // swap files: lock the new one before releasing the old one
-        var nf = try cwd().openFile(tmp_path, .{ .mode = .read_write });
-        errdefer nf.close();
-        if (!try nf.tryLock(.exclusive)) return error.DatabaseLocked;
-        try cwd().rename(tmp_path, self.full_path);
-        self.file.unlock();
-        self.file.close();
+        var nf = try cwd().openFile(self.io, tmp_path, .{ .mode = .read_write });
+        errdefer nf.close(self.io);
+        if (!try nf.tryLock(self.io, .exclusive)) return error.DatabaseLocked;
+        try cwd().rename(tmp_path, cwd(), self.full_path, self.io);
+        self.file.unlock(self.io);
+        self.file.close(self.io);
         self.file = nf;
-        const st = try nf.stat();
+        const st = try nf.stat(self.io);
         self.file_inode = st.inode;
         self.header_size = HEADER_SIZE_V2;
         self.format_version = 2;
@@ -1099,9 +1114,9 @@ pub const DynamicTimeSeriesDB = struct {
         self.crc_state = crc;
         self.crc_valid = true;
         self.last_timestamp = if (keep > 0) last_ts else self.last_timestamp;
-        self.last_fsync_ns = wallNs();
+        self.last_fsync_ns = wallNs(self.io);
         if (self.writer_ready) {
-            self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
+            self.buffered_writer = BufferedWriter.init(self.io, self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
             try self.buildIndex();
         }
     }
@@ -1141,21 +1156,21 @@ pub const DynamicTimeSeriesDB = struct {
         // create the successor first so a crash leaves a valid file behind
         const tmp_path = try std.fmt.allocPrint(self.allocator, "{s}.rollover", .{self.full_path});
         defer self.allocator.free(tmp_path);
-        var nf = try cwd().createFile(tmp_path, .{ .read = true, .truncate = true });
+        var nf = try cwd().createFile(self.io, tmp_path, .{ .read = true, .truncate = true });
         errdefer {
-            nf.close();
-            cwd().deleteFile(tmp_path) catch {};
+            nf.close(self.io);
+            cwd().deleteFile(self.io, tmp_path) catch {};
         }
-        const h = buildHeaderV2(self.schema_hash, self.record_size, HEADER_SIZE_V2, false, 0, true, self.max_file_size, last_ts, wallNs(), self.config.timestamp_unit_ns, self.calendar_id);
-        try nf.pwriteAll(&h, 0);
-        try nf.sync();
-        if (!try nf.tryLock(.exclusive)) return error.DatabaseLocked;
-        try cwd().rename(self.full_path, archive);
-        try cwd().rename(tmp_path, self.full_path);
-        self.file.unlock();
-        self.file.close();
+        const h = buildHeaderV2(self.schema_hash, self.record_size, HEADER_SIZE_V2, false, 0, true, self.max_file_size, last_ts, wallNs(self.io), self.config.timestamp_unit_ns, self.calendar_id);
+        try nf.writePositionalAll(self.io, &h, 0);
+        try nf.sync(self.io);
+        if (!try nf.tryLock(self.io, .exclusive)) return error.DatabaseLocked;
+        try cwd().rename(self.full_path, cwd(), archive, self.io);
+        try cwd().rename(tmp_path, cwd(), self.full_path, self.io);
+        self.file.unlock(self.io);
+        self.file.close(self.io);
         self.file = nf;
-        const st = try nf.stat();
+        const st = try nf.stat(self.io);
         self.file_inode = st.inode;
         self.header_size = HEADER_SIZE_V2;
         self.format_version = 2;
@@ -1167,7 +1182,7 @@ pub const DynamicTimeSeriesDB = struct {
         self.crc_valid = true;
         // keep last_timestamp: the stream stays monotonic across files
         self.sparse_index.clearRetainingCapacity();
-        self.buffered_writer = BufferedWriter.init(self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
+        self.buffered_writer = BufferedWriter.init(self.io, self.file, self.max_file_size, self.header_size, &self.write_cursor, self.overwrite_on_full, &self.is_wrapped, self.record_size);
         self.metrics.rollovers += 1;
         return archive;
     }
@@ -1197,12 +1212,11 @@ pub const DynamicTimeSeriesDB = struct {
     // Metrics
     // ---------------------------------------------------------------------
 
-    fn readStart(self: *Self) std.time.Timer {
-        _ = self;
-        return std.time.Timer.start() catch unreachable;
+    fn readStart(self: *Self) runtime.Timer {
+        return runtime.Timer.startWithIo(self.io);
     }
 
-    fn readEnd(self: *Self, timer: *std.time.Timer, records: u64) void {
+    fn readEnd(self: *Self, timer: *runtime.Timer, records: u64) void {
         const ns = timer.read();
         self.metrics.reads += 1;
         self.metrics.read_ns_total += ns;
@@ -1229,7 +1243,7 @@ pub const DynamicTimeSeriesDB = struct {
     /// Snapshot of the operational counters (derived fields filled in).
     pub fn getMetrics(self: *Self) Metrics {
         var m = self.metrics;
-        const now = wallNs();
+        const now = wallNs(self.io);
         // histogram buckets are log2 upper bounds: never report a percentile above the observed maximum
         m.read_ns_p50 = @min(self.histPercentile(0.5), m.read_ns_max);
         m.read_ns_p99 = @min(self.histPercentile(0.99), m.read_ns_max);
@@ -1241,7 +1255,7 @@ pub const DynamicTimeSeriesDB = struct {
             m.ingest_lag_record_ns = clampI64(@as(i128, now) - rec_ns);
         }
         m.committed_records = self.count();
-        m.file_size = if (self.file.stat()) |st| st.size else |_| 0;
+        m.file_size = if (self.file.stat(self.io)) |st| st.size else |_| 0;
         m.format_version = self.format_version;
         m.read_only = if (self.read_only) 1 else 0;
         return m;
@@ -1253,93 +1267,59 @@ pub const DynamicTimeSeriesDB = struct {
         self.metrics = .{};
         self.metrics.last_record_ts = keep_ts;
         self.metrics.last_commit_wall_ns = keep_wall;
-        self.read_hist = [_]u64{0} ** 40;
+        self.read_hist = @as([40]u64, @splat(0));
     }
 
     pub fn binarySearch(self: *Self, target: i64) !u64 {
+        const total = self.count();
+        if (total == 0) return 0;
+        if (self.last_timestamp) |last| {
+            if (target > last) return total;
+            if (target == last) return total - 1;
+        }
         var left: u64 = 0;
-        var right: u64 = self.count();
-
-        // Sparse Index Optimization
-        if (self.sparse_index.items.len > 0) {
-            // We can narrow the search range
-            const SearchContext = struct {
-                pub fn compare(key: i64, entry: IndexEntry) std.math.Order {
+        var right: u64 = total;
+        if (!self.is_wrapped and self.sparse_index.items.len > 0) {
+            const Context = struct {
+                fn compare(key: i64, entry: IndexEntry) std.math.Order {
                     return std.math.order(key, entry.timestamp);
                 }
             };
-            // Find the first entry where entry.timestamp >= target
-            // lowerBound returns index of first element >= key
-            // But we want the range where target COULD be.
-            // If sparse_index = [ {100, 0}, {200, 100}, {300, 200} ]
-            // target = 150.
-            // binarySearch(150) -> matches index 1 (200).
-            // Implementation uses `std.sort.lowerBound`.
-
-            const idx_idx = std.sort.lowerBound(IndexEntry, self.sparse_index.items, target, SearchContext.compare);
-
-            if (idx_idx > 0) {
-                // The target might be in the block starting at idx_idx - 1
-                left = self.sparse_index.items[idx_idx - 1].index;
-            } else {
-                left = 0;
+            const entries = self.sparse_index.items;
+            const next = std.sort.lowerBound(IndexEntry, entries, target, Context.compare);
+            if (next < entries.len) {
+                if (entries[next].timestamp == target) return entries[next].index;
+                right = @min(total, entries[next].index);
             }
-
-            if (idx_idx < self.sparse_index.items.len) {
-                // The target is definitely before idx_idx (since entry.ts >= target)
-                // actually, if entry.ts == target, it could be AT idx_idx.
-                // safe upper bound:
-                right = self.sparse_index.items[idx_idx].index + 1;
-                // Wait, if target == 200, lowerBound returns index 1 ({200, 100}).
-                // record at 100 is 200.
-                // left = items[0].index = 0.
-                // right = items[1].index = 100.
-                // So we search 0..100. Record 100 is 200. binarySearch(200) on 0..100 returns 100? No.
-                // Range 0..100 excludes 100.
-                // binarySearch contract: returns first index where ts >= target.
-                // If record[100].ts == 200, we want 100.
-                // So right boundary should be inclusive? No, `right` in binary search is exclusive usually.
-                // Let's look at existing binarySearch loop:
-                // while (left < right)
-                // right starts at count().
-
-                // If sparse index says {200, 100}.
-                // target 200. lowerBound -> index 1.
-                // We want strictly tighter bounds?
-                // Actually, if items[idx_idx].timestamp >= target.
-                // The record at items[idx_idx].index has ts >= target.
-                // So the answer must be <= items[idx_idx].index.
-                // So right = items[idx_idx].index + 1? No.
-                // Because multiple records can have same timestamp?
-                // If record 100 has 200. record 101 has 200.
-                // We want index 100.
-                // So right can be items[idx_idx].index + 1?
-                // Let's be safe:
-                // right = items[idx_idx].index + self.index_stride? No.
-
-                // If items[idx_idx] is the first entry >= target.
-                // Then items[idx_idx].index is a valid candidate for the answer.
-                // So right should include it.
-                // right = items[idx_idx].index + 1. (Since loop is left < right).
-
-                // HOWEVER, if lowerBound returned `len`, then target > all entries.
-                // Then right = count().
-
-                right = self.sparse_index.items[idx_idx].index + 1;
-            }
-
-            // Clamp right to count() just in case
-            if (right > self.count()) right = self.count();
+            if (next > 0) left = entries[next - 1].index + 1;
         }
 
+        // Once the candidate block fits, search its timestamps in memory.
+        // Large strides and ring segments are narrowed with positional reads
+        // until a physically contiguous block fits this bounded stack buffer.
+        var buffer: [32 * 1024]u8 = undefined;
         while (left < right) {
+            const records = right - left;
+            const offset = self.getPhysicalOffset(left);
+            if (records <= buffer.len / self.record_size and
+                (!self.is_wrapped or records <= (self.max_file_size - offset) / self.record_size))
+            {
+                const bytes = records * self.record_size;
+                if (try self.file.readPositionalAll(self.io, buffer[0..bytes], offset) != bytes)
+                    return error.UnexpectedEndOfFile;
+                var lo: u64 = 0;
+                var hi = records;
+                while (lo < hi) {
+                    const mid = lo + (hi - lo) / 2;
+                    const pos = mid * self.record_size + self.timestamp_offset;
+                    const ts = std.mem.bytesToValue(i64, buffer[pos..][0..8]);
+                    if (ts < target) lo = mid + 1 else hi = mid;
+                }
+                return left + lo;
+            }
             const mid = left + (right - left) / 2;
             const ts = try self.readTimestampAt(mid);
-            if (ts < target) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
+            if (ts < target) left = mid + 1 else right = mid;
         }
         return left;
     }
@@ -1356,7 +1336,15 @@ pub const DynamicTimeSeriesDB = struct {
             return allocator.alloc(u8, 0);
         }
 
-        var result_list = std.ArrayListUnmanaged(u8){};
+        if (filters.len == 0) {
+            const result = try allocator.alloc(u8, (end_idx - start_idx) * self.record_size);
+            errdefer allocator.free(result);
+            _ = try self.readRecordsInto(start_idx, end_idx, result);
+            self.metrics.records_read += end_idx - start_idx;
+            return result;
+        }
+
+        var result_list = std.ArrayListUnmanaged(u8).empty;
         defer result_list.deinit(allocator);
 
         // Optimization: Pre-allocate
@@ -1419,7 +1407,7 @@ pub const DynamicTimeSeriesDB = struct {
                 try result_list.ensureUnusedCapacity(allocator, read_size);
                 result_list.items.len += read_size;
                 const dest_slice = result_list.items[old_len..][0..read_size];
-                const len = try self.file.preadAll(dest_slice, physical_offset);
+                const len = try self.file.readPositionalAll(self.io, dest_slice, physical_offset);
 
                 if (len != read_size) {
                     return error.UnexpectedEndOfFile;
@@ -1434,7 +1422,7 @@ pub const DynamicTimeSeriesDB = struct {
             const temp_buf = try allocator.alloc(u8, read_size);
             defer allocator.free(temp_buf);
 
-            const len = try self.file.preadAll(temp_buf, physical_offset);
+            const len = try self.file.readPositionalAll(self.io, temp_buf, physical_offset);
             if (len != read_size) return error.UnexpectedEndOfFile;
 
             var i: usize = 0;
@@ -1490,87 +1478,41 @@ pub const DynamicTimeSeriesDB = struct {
         return result_list.toOwnedSlice(allocator);
     }
 
+    /// Read a logical record interval directly into its final allocation.
+    /// A wrapped ring has at most two physically contiguous segments.
+    fn readRecordsInto(self: *Self, start_idx: u64, end_idx: u64, buffer: []u8) !usize {
+        if (start_idx >= end_idx) return 0;
+        const bytes = (end_idx - start_idx) * self.record_size;
+        if (buffer.len < bytes) return error.BufferTooSmall;
+        var index = start_idx;
+        var written: usize = 0;
+        while (index < end_idx) {
+            const offset = self.getPhysicalOffset(index);
+            const records = if (self.is_wrapped)
+                @min(end_idx - index, (self.max_file_size - offset) / self.record_size)
+            else
+                end_idx - index;
+            const size = records * self.record_size;
+            if (size == 0) return error.CorruptedData;
+            if (try self.file.readPositionalAll(self.io, buffer[written..][0..size], offset) != size)
+                return error.UnexpectedEndOfFile;
+            written += size;
+            index += records;
+        }
+        return written;
+    }
+
     pub fn queryInto(self: *Self, start_ts: i64, end_ts: i64, filters: []const Filter, buffer: []u8) !usize {
         var read_timer = self.readStart();
         defer self.readEnd(&read_timer, 0);
         try self.flush();
-
         const start_idx = try self.binarySearch(start_ts);
         const end_idx = try self.binarySearch(end_ts);
-
-        if (start_idx >= end_idx) {
-            return 0;
-        }
-
-        var current_idx = start_idx;
-        var bytes_written: usize = 0;
-
-        // For filtering with pre-allocated buffer
-        // We need a small scratch buffer if filters are present.
-        // If no filters, we read directly into buffer.
-
-        // If filters are present, we need an allocator for temp buffer?
-        // To keep this "no-alloc", we should only support no-filter optimization or require a scratch buffer.
-        // For now, let's fall back to alloc if (filters.len > 0), OR just fail to keep it strict.
-        // But the main use case is bulk fetch without filters.
-
-        // If filters are present, we need an allocator for temp buffer?
-        // To keep this "no-alloc", we should only support no-filter optimization or require a scratch buffer.
-        // For now, let's fall back to alloc if (filters.len > 0), OR just fail to keep it strict.
-        // But the main use case is bulk fetch without filters.
-
-        while (current_idx < end_idx) {
-            // Determine contiguous count
-            var contiguous_count: u64 = 0;
-            var physical_offset: u64 = 0;
-
-            if (self.is_wrapped) {
-                const capacity = self.count();
-                const start_rec_index = self.countRecordsFromOffset(self.write_cursor);
-                physical_offset = self.getPhysicalOffset(current_idx);
-
-                const records_until_wrap = capacity - ((start_rec_index + current_idx) % capacity);
-                const bytes_until_eof = self.max_file_size - physical_offset;
-                const records_physically_contiguous = bytes_until_eof / self.record_size;
-
-                contiguous_count = @min(end_idx - current_idx, records_until_wrap);
-                contiguous_count = @min(contiguous_count, records_physically_contiguous);
-            } else {
-                physical_offset = self.getPhysicalOffset(current_idx);
-                contiguous_count = end_idx - current_idx;
-            }
-
-            const MAX_CHUNK_RECORDS = 1024;
-            contiguous_count = @min(contiguous_count, MAX_CHUNK_RECORDS);
-
-            if (contiguous_count == 0) break;
-
-            const read_size = contiguous_count * self.record_size;
-
-            if (filters.len == 0) {
-                if (bytes_written + read_size > buffer.len) return error.BufferTooSmall;
-
-                const dest_slice = buffer[bytes_written .. bytes_written + read_size];
-                const len = try self.file.preadAll(dest_slice, physical_offset);
-                if (len != read_size) return error.UnexpectedEndOfFile;
-
-                bytes_written += read_size;
-            } else {
-                // Filtering Logic with Stack Buffer (limited chunk size)
-                // If read_size > 4096, we can't use stack buffer.
-                // We limited chunk to 1024 records. record_size must be small enough.
-                // If record_size * 1024 > 4096 (e.g. record is > 4 bytes), this fails.
-                // Safe approach: Read record-by-record for filtering if strictly no-alloc.
-
-                // For this optimization, we primarily care about the NO-FILTER path.
-                // So skipping complex implementation for filters in queryInto for now.
-                return error.FiltersNotSupportedInQueryInto;
-            }
-
-            current_idx += contiguous_count;
-        }
-
-        return bytes_written;
+        if (start_idx >= end_idx) return 0;
+        if (filters.len > 0) return error.FiltersNotSupportedInQueryInto;
+        const written = try self.readRecordsInto(start_idx, end_idx, buffer);
+        self.metrics.records_read += written / self.record_size;
+        return written;
     }
 
     fn getFieldOffset(self: *Self, field_index: usize) !usize {
@@ -1603,7 +1545,7 @@ pub const DynamicTimeSeriesDB = struct {
         var record_buf: [4096]u8 = undefined;
         if (self.record_size > record_buf.len) return error.RecordTooLarge;
 
-        const len = try self.file.preadAll(record_buf[0..self.record_size], last_record_offset);
+        const len = try self.file.readPositionalAll(self.io, record_buf[0..self.record_size], last_record_offset);
         if (len != self.record_size) return error.UnexpectedEndOfFile;
 
         const ts = std.mem.bytesToValue(i64, record_buf[self.timestamp_offset .. self.timestamp_offset + 8]);
@@ -1642,7 +1584,7 @@ pub const DynamicTimeSeriesDB = struct {
         const field_type = self.fields[field_index].type;
 
         // Collect all values to compute percentiles
-        var values = std.ArrayListUnmanaged(f64){};
+        var values = std.ArrayListUnmanaged(f64).empty;
         defer values.deinit(self.allocator);
 
         if (compute_percentiles) {
@@ -1655,7 +1597,7 @@ pub const DynamicTimeSeriesDB = struct {
         var stats_count: u64 = 0;
 
         var current_idx = start_idx;
-        const CHUNK_RECORDS = 1024;
+        const CHUNK_RECORDS = @min(end_idx - start_idx, @max(1, (256 * 1024) / self.record_size));
         const chunk_bytes_size = CHUNK_RECORDS * self.record_size;
         const alloc_buf = try self.allocator.alloc(u8, chunk_bytes_size);
         defer self.allocator.free(alloc_buf);
@@ -1675,7 +1617,7 @@ pub const DynamicTimeSeriesDB = struct {
             chunk_count = @min(chunk_count, CHUNK_RECORDS);
 
             const read_size = chunk_count * self.record_size;
-            const len = try self.file.preadAll(alloc_buf[0..read_size], physical_offset);
+            const len = try self.file.readPositionalAll(self.io, alloc_buf[0..read_size], physical_offset);
             if (len != read_size) return error.UnexpectedEndOfFile;
 
             var i: usize = 0;
@@ -1849,7 +1791,7 @@ pub const DynamicTimeSeriesDB = struct {
             }
             chunk = @min(chunk, CHUNK_RECORDS);
             const read_size: usize = @intCast(chunk * self.record_size);
-            const len = try self.file.preadAll(buf[0..read_size], physical_offset);
+            const len = try self.file.readPositionalAll(self.io, buf[0..read_size], physical_offset);
             if (len != read_size) return error.UnexpectedEndOfFile;
             var i: usize = 0;
             while (i < chunk) : (i += 1) {
@@ -2095,10 +2037,10 @@ pub const DynamicTimeSeriesDB = struct {
         if (self.read_only or self.format_version != 2) return;
         var f: [2]u8 = undefined;
         std.mem.writeInt(u16, &f, headerFlags(self.crc_valid and !self.is_wrapped, self.calendar_id), .little);
-        try self.file.pwriteAll(&f, OFF_FLAGS);
+        try self.file.writePositionalAll(self.io, &f, OFF_FLAGS);
         var u: [4]u8 = undefined;
         std.mem.writeInt(u32, &u, unitWord(self.config.timestamp_unit_ns), .little);
-        try self.file.pwriteAll(&u, OFF_UNIT);
+        try self.file.writePositionalAll(self.io, &u, OFF_UNIT);
     }
 
     fn secToTs(self: *Self, sec: i64) i64 {
@@ -2781,22 +2723,11 @@ pub const DynamicTimeSeriesDB = struct {
         defer self.readEnd(&read_timer, 0);
         try self.flush();
 
-        // For ring buffers, use query to get logical order (oldest to newest)
-        if (self.is_wrapped) {
-            return self.query(std.math.minInt(i64), std.math.maxInt(i64), &[_]Filter{}, allocator);
-        }
-
-        // For linear mode, direct read is faster and preserves order
-        const stat = try self.file.stat();
-        if (stat.size <= self.header_size) return allocator.alloc(u8, 0);
-
-        const data_size = stat.size - self.header_size;
-        const buf = try allocator.alloc(u8, data_size);
+        const total = self.count();
+        const buf = try allocator.alloc(u8, total * self.record_size);
         errdefer allocator.free(buf);
-
-        const len = try self.file.preadAll(buf, self.header_size);
-        if (len != data_size) return error.UnexpectedEndOfFile;
-        self.metrics.records_read += data_size / self.record_size;
+        _ = try self.readRecordsInto(0, total, buf);
+        self.metrics.records_read += total;
         return buf;
     }
 };
@@ -2809,13 +2740,31 @@ pub fn TimeSeriesDB(comptime T: type) type {
         allocator: std.mem.Allocator, // To free the dynamic_db
 
         pub const Config = DynamicTimeSeriesDB.Config;
+        const info = @typeInfo(T).@"struct";
+        const packed_size = size: {
+            var size: usize = 0;
+            for (info.field_types) |Field| size += @sizeOf(Field);
+            break :size size;
+        };
+        const native_layout = layout: {
+            var offset: usize = 0;
+            for (info.field_names, info.field_types) |name, Field| {
+                if (@offsetOf(T, name) != offset) break :layout false;
+                offset += @sizeOf(Field);
+            }
+            break :layout offset == @sizeOf(T);
+        };
 
         pub fn init(ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, config: Config) !Self {
+            return initWithIo(runtime.io, ticker, dir_path, allocator, config);
+        }
+
+        pub fn initWithIo(io: std.Io, ticker: []const u8, dir_path: []const u8, allocator: std.mem.Allocator, config: Config) !Self {
             // Generate schema from T
-            const fields = std.meta.fields(T);
-            var field_infos_storage: [fields.len]FieldInfo = undefined;
-            inline for (fields, 0..) |field, i| {
-                const f_type = switch (field.type) {
+            const fields = @typeInfo(T).@"struct";
+            var field_infos_storage: [fields.field_names.len]FieldInfo = undefined;
+            inline for (fields.field_names, fields.field_types, 0..) |field_name, field_type, i| {
+                const f_type = switch (field_type) {
                     i64 => FieldType.i64,
                     f64 => FieldType.f64,
                     u64 => FieldType.u64,
@@ -2823,14 +2772,15 @@ pub fn TimeSeriesDB(comptime T: type) type {
                     bool => FieldType.bool,
                     else => @compileError("Unsupported field type"),
                 };
-                field_infos_storage[i] = .{ .name = field.name, .type = f_type };
+                field_infos_storage[i] = .{ .name = field_name, .type = f_type };
             }
 
             const schema = Schema{ .fields = &field_infos_storage };
 
             var dynamic_db_ptr = try allocator.create(DynamicTimeSeriesDB);
             errdefer allocator.destroy(dynamic_db_ptr);
-            dynamic_db_ptr.* = try DynamicTimeSeriesDB.init(ticker, dir_path, allocator, schema, config);
+            dynamic_db_ptr.* = try DynamicTimeSeriesDB.initWithIo(io, ticker, dir_path, allocator, schema, config);
+            errdefer dynamic_db_ptr.deinit();
             try dynamic_db_ptr.initWriter();
 
             return Self{ .dynamic_db = dynamic_db_ptr, .allocator = allocator };
@@ -2846,48 +2796,67 @@ pub fn TimeSeriesDB(comptime T: type) type {
         }
 
         pub fn append(self: *Self, data: T) !void {
-            const bytes = std.mem.asBytes(&data);
-            try self.dynamic_db.append(bytes);
+            if (native_layout) return self.dynamic_db.append(std.mem.asBytes(&data));
+            var bytes: [packed_size]u8 = undefined;
+            comptime var offset: usize = 0;
+            inline for (info.field_names, info.field_types) |name, Field| {
+                const value: Field = @field(data, name);
+                @memcpy(bytes[offset..][0..@sizeOf(Field)], std.mem.asBytes(&value));
+                offset += @sizeOf(Field);
+            }
+            try self.dynamic_db.append(&bytes);
         }
 
         pub fn query(self: *Self, start_ts: i64, end_ts: i64, allocator: std.mem.Allocator) ![]T {
-            const raw_bytes = try self.dynamic_db.query(start_ts, end_ts, &[_]Filter{}, allocator);
-            errdefer allocator.free(raw_bytes);
-
-            const record_size = self.dynamic_db.record_size;
-            if (raw_bytes.len % record_size != 0) return error.CorruptedData;
-
-            const count = raw_bytes.len / record_size;
-            const result = try allocator.alloc(T, count);
-
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
-                const record_bytes = raw_bytes[i * record_size .. (i + 1) * record_size];
-                result[i] = std.mem.bytesToValue(T, record_bytes);
+            const db = self.dynamic_db;
+            if (native_layout) {
+                var timer = db.readStart();
+                defer db.readEnd(&timer, 0);
+                try db.flush();
+                const first = try db.binarySearch(start_ts);
+                const end = try db.binarySearch(end_ts);
+                const count = end -| first;
+                const result = try allocator.alloc(T, count);
+                errdefer allocator.free(result);
+                _ = try db.readRecordsInto(first, end, std.mem.sliceAsBytes(result));
+                db.metrics.records_read += count;
+                return result;
             }
+            const bytes = try db.query(start_ts, end_ts, &.{}, allocator);
+            defer allocator.free(bytes);
+            if (bytes.len % packed_size != 0) return error.CorruptedData;
+            return decode(bytes, allocator);
+        }
 
-            allocator.free(raw_bytes);
+        fn decode(bytes: []const u8, allocator: std.mem.Allocator) ![]T {
+            const result = try allocator.alloc(T, bytes.len / packed_size);
+            for (result, 0..) |*record, i| {
+                comptime var offset: usize = 0;
+                inline for (info.field_names, info.field_types) |name, Field| {
+                    @field(record.*, name) = std.mem.bytesToValue(Field, bytes[i * packed_size + offset ..][0..@sizeOf(Field)]);
+                    offset += @sizeOf(Field);
+                }
+            }
             return result;
         }
 
         pub fn load(self: *Self, allocator: std.mem.Allocator) ![]T {
-            const raw_bytes = try self.dynamic_db.load(allocator);
-            errdefer allocator.free(raw_bytes);
-
-            const record_size = self.dynamic_db.record_size;
-            if (raw_bytes.len % record_size != 0) return error.CorruptedData;
-
-            const count = raw_bytes.len / record_size;
-            const result = try allocator.alloc(T, count);
-
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
-                const record_bytes = raw_bytes[i * record_size .. (i + 1) * record_size];
-                result[i] = std.mem.bytesToValue(T, record_bytes);
+            const db = self.dynamic_db;
+            if (native_layout) {
+                var timer = db.readStart();
+                defer db.readEnd(&timer, 0);
+                try db.flush();
+                const count = db.count();
+                const result = try allocator.alloc(T, count);
+                errdefer allocator.free(result);
+                _ = try db.readRecordsInto(0, count, std.mem.sliceAsBytes(result));
+                db.metrics.records_read += count;
+                return result;
             }
-
-            allocator.free(raw_bytes); // Free the intermediate raw_bytes
-            return result;
+            const bytes = try db.load(allocator);
+            defer allocator.free(bytes);
+            if (bytes.len % packed_size != 0) return error.CorruptedData;
+            return decode(bytes, allocator);
         }
     };
 }
@@ -2901,12 +2870,12 @@ test "TimeSeriesDB generic usage" {
     const ticker = "TEST_ROOT_GENERIC";
     // Randomize directory to avoid conflicts between parallel test runners
     var dir_buf: [64]u8 = undefined;
-    const dir = try std.fmt.bufPrint(&dir_buf, "test_root_{x}", .{std.crypto.random.int(u64)});
+    const dir = try std.fmt.bufPrint(&dir_buf, "test_root_{x}", .{runtime.randomInt(u64)});
 
     // Cleanup with retry
     var retries: usize = 0;
     while (retries < 10) : (retries += 1) {
-        std.fs.cwd().deleteTree(dir) catch |err| {
+        std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch |err| {
             if (err == error.FileNotFound) break;
             std.debug.print("deleteTree failed (retry {}): {}\n", .{ retries, err });
             if (retries == 9) return err; // Fail on last retry
@@ -2915,7 +2884,7 @@ test "TimeSeriesDB generic usage" {
         };
         break;
     }
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
 
     const DB = TimeSeriesDB(TestStruct);
 
@@ -2973,6 +2942,7 @@ test "TimeSeriesDB generic usage" {
 }
 
 test {
+    _ = @import("test_migration.zig");
     _ = @import("test_stats.zig");
     _ = @import("test_query.zig");
     _ = @import("test_auto_increment.zig");

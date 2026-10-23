@@ -2,6 +2,7 @@
 //! (param = 0), trading-time gaps in health(), automatic periods_per_year,
 //! and persistence of the calendar id / timestamp unit in the file header.
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const ind = hocdb.indicators;
 const cal = hocdb.calendar;
@@ -23,7 +24,7 @@ const US: i64 = 1_000_000;
 const MIN: i64 = 60 * US;
 
 fn tmpDir(buf: []u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "test_calendar_db_{x}", .{std.crypto.random.int(u64)});
+    return std.fmt.bufPrint(buf, "test_calendar_db_{x}", .{runtime.randomInt(u64)});
 }
 
 /// One-minute bars for every minute of the given NYSE trade dates (µs timestamps).
@@ -48,7 +49,7 @@ test "calendar sessions drive session kinds, health and annualisation" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     // Thu 2025-09-04, Fri 2025-09-05, (Mon 2025-09-08 missing), Tue 2025-09-09
     const thu = cal.daysFromCivil(2025, 9, 4);
     const fri = cal.daysFromCivil(2025, 9, 5);
@@ -56,7 +57,7 @@ test "calendar sessions drive session kinds, health and annualisation" {
     const s_thu = cal.nyse.sessionForDay(thu).?;
     const s_fri = cal.nyse.sessionForDay(fri).?;
     const s_tue = cal.nyse.sessionForDay(tue).?;
-    var db = try DB.init("CAL", dir, a, schema, .{ .calendar = @intFromEnum(cal.Id.nyse), .timestamp_unit_ns = 1000 });
+    var db = try DB.init("CAL", dir, a, schema, .{ .calendar = @backingInt(cal.Id.nyse), .timestamp_unit_ns = 1000 });
     try db.initWriter();
     defer db.deinit();
     try fillSessions(&db, &.{ thu, fri, tue }, 7);
@@ -71,10 +72,10 @@ test "calendar sessions drive session kinds, health and annualisation" {
     defer a.free(fri_first);
     const first_bar: *const Bar = @ptrCast(@alignCast(fri_first.ptr));
     const specs = [_]ind.Spec{
-        .{ .kind = @intFromEnum(ind.Kind.session_range), .param = 0 },
-        .{ .kind = @intFromEnum(ind.Kind.session_vwap), .param = 0 },
-        .{ .kind = @intFromEnum(ind.Kind.pivots), .param = 0 },
-        .{ .kind = @intFromEnum(ind.Kind.opening_range), .period = 5, .param = 0 },
+        .{ .kind = @backingInt(ind.Kind.session_range), .param = 0 },
+        .{ .kind = @backingInt(ind.Kind.session_vwap), .param = 0 },
+        .{ .kind = @backingInt(ind.Kind.pivots), .param = 0 },
+        .{ .kind = @backingInt(ind.Kind.opening_range), .period = 5, .param = 0 },
     };
     const res = try db.indicatorsRange((s_fri.open + 100 * 60) * US, s_fri.close * US, cols, &specs, 0, 0, a);
     defer res.deinit();
@@ -99,7 +100,7 @@ test "calendar sessions drive session kinds, health and annualisation" {
     for (res.output(12)) |v| try std.testing.expect(!ind.isNan(v));
 
     // Tuesday's pivots use Friday (the previous *existing* session), not the missing Monday
-    const pv = [_]ind.Spec{.{ .kind = @intFromEnum(ind.Kind.pivots), .param = 0 }};
+    const pv = [_]ind.Spec{.{ .kind = @backingInt(ind.Kind.pivots), .param = 0 }};
     const res2 = try db.indicatorsRange(s_tue.open * US, s_tue.close * US, cols, &pv, 0, 0, a);
     defer res2.deinit();
     const fri_rows = try db.query(s_fri.open * US, s_fri.close * US, &.{}, a);
@@ -154,10 +155,10 @@ test "calendar id and timestamp unit persist in the header and reach readers" {
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     try std.testing.expectError(error.UnknownCalendar, DB.init("P", dir, a, schema, .{ .calendar = 999 }));
     {
-        var db = try DB.init("P", dir, a, schema, .{ .calendar = @intFromEnum(cal.Id.lse), .timestamp_unit_ns = 1_000_000 });
+        var db = try DB.init("P", dir, a, schema, .{ .calendar = @backingInt(cal.Id.lse), .timestamp_unit_ns = 1_000_000 });
         try db.initWriter();
         defer db.deinit();
         try fillSessions(&db, &.{cal.daysFromCivil(2025, 9, 4)}, 1);
@@ -175,7 +176,7 @@ test "calendar id and timestamp unit persist in the header and reach readers" {
         try std.testing.expectEqualStrings("lse", r.tradingCalendar().?.name);
         try std.testing.expectEqual(@as(u64, 1_000_000), r.timestampUnitNs());
         try std.testing.expectError(error.UnknownCalendar, db.setCalendar(77));
-        try db.setCalendar(@intFromEnum(cal.Id.crypto));
+        try db.setCalendar(@backingInt(cal.Id.crypto));
         try db.setTimestampUnit(1000);
         try std.testing.expectApproxEqAbs(@as(f64, 365 * 1440), db.periodsPerYear(60 * US), 1e-9);
     }
@@ -189,10 +190,10 @@ test "calendar id and timestamp unit persist in the header and reach readers" {
         var db2 = try DB.openReader("P", dir, a, schema);
         try db2.initWriter();
         defer db2.deinit();
-        try db2.setCalendar(@intFromEnum(cal.Id.fx)); // local to the reader, not persisted
+        try db2.setCalendar(@backingInt(cal.Id.fx)); // local to the reader, not persisted
         try std.testing.expectEqualStrings("fx", db2.tradingCalendar().?.name);
         // custom calendars are not persisted (process-local)
-        var weekly: [7]?cal.DaySession = .{null} ** 7;
+        var weekly: [7]?cal.DaySession = @splat(null);
         weekly[0] = .{ .open_sec = 0, .close_sec = 3600 };
         const id = try cal.define("db_custom", weekly, 0, .none, &.{}, &.{}, 52);
         try db.setCalendar(id);

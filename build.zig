@@ -39,6 +39,7 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
+        .optimize = optimize,
     });
     // Library code (e.g. calendar.zig) uses the C allocator, so libc is
     // required. Linking it here propagates to every artifact importing this
@@ -99,9 +100,7 @@ pub fn build(b: *std.Build) void {
 
     // This allows the user to pass arguments to the application in the build
     // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
@@ -131,41 +130,13 @@ pub fn build(b: *std.Build) void {
     });
     exe_tests.root_module.addImport("hocdb", mod);
 
-    // Integrity Tests
-    const integrity_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_integrity.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-    integrity_tests.root_module.addImport("hocdb", mod);
-
-    // A run step that will run the second test executable.
     const run_exe_tests = b.addRunArtifact(exe_tests);
-    const run_integrity_tests = b.addRunArtifact(integrity_tests);
-
-    // Auto-Increment Tests
-    const auto_inc_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_auto_increment.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-    auto_inc_tests.root_module.addImport("hocdb", mod);
-    const run_auto_inc_tests = b.addRunArtifact(auto_inc_tests);
 
     // A top level step for running all tests. dependOn can be called multiple
-    // times and since the two run steps do not depend on one another, this will
-    // make the two of them run in parallel.
+    // times; root.zig imports every core test exactly once.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
-    test_step.dependOn(&run_integrity_tests.step);
-    test_step.dependOn(&run_auto_inc_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

@@ -1,6 +1,7 @@
 //! DB-level tests for universe(): the k-way inner join over several
 //! databases and agreement with the pure kernel on hand-joined arrays.
 const std = @import("std");
+const runtime = @import("runtime.zig");
 const hocdb = @import("root.zig");
 const ind = hocdb.indicators;
 const uni = hocdb.universe_mod;
@@ -20,7 +21,7 @@ const schema = hocdb.Schema{ .fields = &[_]hocdb.FieldInfo{
 const cols = DB.IndicatorColumns{ .open = 1, .high = 2, .low = 3, .close = 4, .volume = 5 };
 
 fn tmpDir(buf: []u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "test_universe_db_{x}", .{std.crypto.random.int(u64)});
+    return std.fmt.bufPrint(buf, "test_universe_db_{x}", .{runtime.randomInt(u64)});
 }
 
 /// Bars every 60 units from t0; `skip` drops every skip-th bar (0 = none).
@@ -42,7 +43,7 @@ test "universe joins several databases and matches the kernel on hand-joined arr
     const a = std.testing.allocator;
     var dir_buf: [64]u8 = undefined;
     const dir = try tmpDir(&dir_buf);
-    defer std.fs.cwd().deleteTree(dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(runtime.io, dir) catch {};
     var d1 = try DB.init("U1", dir, a, schema, .{});
     try d1.initWriter();
     defer d1.deinit();
@@ -79,19 +80,19 @@ test "universe joins several databases and matches the kernel on hand-joined arr
     const t1 = b1[b1.len - 120 ..];
     const t2 = b2[b2.len - 120 ..];
     const t3 = b3[b3.len - 120 ..];
-    var jts = std.ArrayList(i64){};
+    var jts = std.ArrayList(i64).empty;
     defer jts.deinit(a);
-    var c1 = std.ArrayList(f64){};
+    var c1 = std.ArrayList(f64).empty;
     defer c1.deinit(a);
-    var c2 = std.ArrayList(f64){};
+    var c2 = std.ArrayList(f64).empty;
     defer c2.deinit(a);
-    var c3 = std.ArrayList(f64){};
+    var c3 = std.ArrayList(f64).empty;
     defer c3.deinit(a);
-    var v1 = std.ArrayList(f64){};
+    var v1 = std.ArrayList(f64).empty;
     defer v1.deinit(a);
-    var v2 = std.ArrayList(f64){};
+    var v2 = std.ArrayList(f64).empty;
     defer v2.deinit(a);
-    var v3 = std.ArrayList(f64){};
+    var v3 = std.ArrayList(f64).empty;
     defer v3.deinit(a);
     for (t3) |x| {
         var k1: ?usize = null;
@@ -121,11 +122,11 @@ test "universe joins several databases and matches the kernel on hand-joined arr
     try std.testing.expectEqual(sum.n_bars, sum2.n_bars);
     try std.testing.expectEqual(sum.first_ts, sum2.first_ts);
     try std.testing.expectEqual(sum.last_ts, sum2.last_ts);
-    inline for (std.meta.fields(uni.Row)) |f| {
+    inline for (@typeInfo(uni.Row).@"struct".field_names, @typeInfo(uni.Row).@"struct".field_types) |f_name, f_type| {
         for (0..3) |i| {
-            const x = @field(rows[i], f.name);
-            const y = @field(rows2[i], f.name);
-            if (f.type == f64) {
+            const x = @field(rows[i], f_name);
+            const y = @field(rows2[i], f_name);
+            if (f_type == f64) {
                 try std.testing.expect((ind.isNan(x) and ind.isNan(y)) or x == y);
             } else {
                 try std.testing.expectEqual(y, x);
