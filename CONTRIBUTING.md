@@ -34,7 +34,7 @@ Have an idea for a new feature? See [Suggesting Features](#suggesting-features).
 ## Development Setup
 
 ### Prerequisites
-- **Zig 0.17.0** - The entire project is written in Zig
+- **Zig 0.17.1** - The entire project is written in Zig
 - Git
 - A modern terminal/shell
 

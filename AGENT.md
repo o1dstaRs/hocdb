@@ -138,3 +138,6 @@ Tests: `src/test_storage.zig`, `bindings/c/test/test_storage.c`, each binding's 
 - Keep sparse indexes disabled for wrapped files, including a wrap that happens during the final flush. Tests in `test_migration.zig` cover this boundary, rejected appends, allocation failures, padded typed records, and maximum timestamps.
 - Writer initialization checks that a conflicting exclusive lock is actually refused. Filesystems that falsely report success return `FileLocksUnsupported`; Docker Desktop shared-folder behavior was reproduced during validation. Linux database tests must use a Linux filesystem or Docker volume rather than that host bind mount.
 - The auto-increment scratch path uses 256 stack bytes for common records, with an allocation fallback for larger records; the large-record/failed-allocation regression must stay green. Avoid reserving a full page on every append, and skip sparse-index arithmetic for auto-increment and wrapped files.
+
+### Zig 0.17.1 patch release
+- The current compiler pin is **0.17.1**, superseding the 0.17.0 pin above. Continue using `./scripts/zig.sh` and the same verification commands.

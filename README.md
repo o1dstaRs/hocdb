@@ -9,7 +9,7 @@
     <img src="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml/badge.svg" alt="CI Status">
   </a>
   <a href="https://ziglang.org/download/">
-    <img src="https://img.shields.io/badge/Zig-0.17.0-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
+    <img src="https://img.shields.io/badge/Zig-0.17.1-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
@@ -96,13 +96,13 @@ naive scalar implementations on million-row series in `src/test_indicators.zig`.
 
 HOCDB uses the Zig build system.
 
-**Prerequisites**: [Zig 0.17.0](https://ziglang.org/download/)
+**Prerequisites**: [Zig 0.17.1](https://ziglang.org/download/)
 
 See the [Zig 0.17 validation and performance report](validation/zig17/README.md)
 for the migration's measured results and test coverage.
 
 The release is pinned in `.zig-version`. `./scripts/zig.sh` uses an installed
-0.17.0 or downloads it to a user cache and verifies its official SHA256; it
+0.17.1 or downloads it to a user cache and verifies its official SHA256; it
 does not replace the system compiler. Use it wherever `zig` appears below.
 
 ```bash
