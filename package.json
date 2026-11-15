@@ -1,12 +1,14 @@
 {
-    "name": "hocdb",
-    "version": "0.1.1",
-    "description": "High Performance Time Series Database",
-    "main": "bindings/node/index.js",
-    "types": "bindings/bun/index.ts",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
-    "author": "",
-    "license": "MIT"
+  "name": "hocdb",
+  "version": "0.1.1",
+  "description": "Embedded time-series database and JSON CLI for applications and agents",
+  "main": "bindings/node/index.js",
+  "types": "bindings/node/index.d.ts",
+  "scripts": {
+    "build": "./scripts/zig.sh build -Doptimize=ReleaseSafe",
+    "test": "./scripts/zig.sh build test && ./scripts/zig.sh build && python3 tests/test_cli.py",
+    "test:bindings": "./verify_all.sh"
+  },
+  "author": "",
+  "license": "MIT"
 }

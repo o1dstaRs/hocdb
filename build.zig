@@ -71,6 +71,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addImport("hocdb", mod);
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", @import("build.zig.zon").version);
+    exe.root_module.addOptions("build_options", build_options);
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
@@ -129,6 +132,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe_tests.root_module.addImport("hocdb", mod);
+    exe_tests.root_module.addOptions("build_options", build_options);
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
 

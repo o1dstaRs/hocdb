@@ -82,3 +82,7 @@ b_*_test_round4
 # compiled Go test binaries (they embed absolute source paths)
 *.test
 bindings/go/hocdb.test
+
+# Release bundles
+dist/
+unpacked/

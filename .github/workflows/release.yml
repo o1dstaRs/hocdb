@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+          - os: macos-latest
+            platform: macos-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.17.1
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify version and architecture
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          python3 - <<'PY'
+          import json, os, platform
+          version = json.load(open("package.json"))["version"]
+          if os.environ["GITHUB_REF_TYPE"] == "tag":
+              assert os.environ["GITHUB_REF_NAME"] == "v" + version
+          arch = {"arm64":"aarch64", "x86_64":"x86_64"}[platform.machine()]
+          system = {"Darwin":"macos", "Linux":"linux"}[platform.system()]
+          assert system + "-" + arch == os.environ["RELEASE_PLATFORM"]
+          PY
+      - name: Core and CLI validation
+        run: |
+          zig build test -Doptimize=ReleaseSafe --summary all
+          zig build -Doptimize=ReleaseSafe -Dcpu=baseline
+          python3 tests/test_cli.py
+      - name: Package and test the archive
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          scripts/package_release.sh "$RELEASE_PLATFORM"
+          mkdir unpacked
+          tar -xzf dist/*.tar.gz -C unpacked
+          HOCDB_BIN="$PWD/$(find unpacked -path '*/bin/hocdb')" python3 tests/test_cli.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hocdb-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  draft:
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Assemble checksums and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat dist/*.sha256 > dist/SHA256SUMS
+          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS \
+            --verify-tag --draft --title "HOCDB $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
