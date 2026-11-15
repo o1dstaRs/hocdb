@@ -16,8 +16,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x86_64
+            target: x86_64-linux-musl
           - os: macos-latest
             platform: macos-aarch64
+            target: aarch64-macos.13.0
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -42,9 +44,11 @@ jobs:
           assert system + "-" + arch == os.environ["RELEASE_PLATFORM"]
           PY
       - name: Core and CLI validation
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
         run: |
-          zig build test -Doptimize=ReleaseSafe --summary all
-          zig build -Doptimize=ReleaseSafe -Dcpu=baseline
+          zig build test -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget="$RELEASE_TARGET" --summary all
+          zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dtarget="$RELEASE_TARGET"
           python3 tests/test_cli.py
       - name: Package and test the archive
         env:
@@ -78,5 +82,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cat dist/*.sha256 > dist/SHA256SUMS
-          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS \
-            --verify-tag --draft --title "HOCDB $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS \
+              --verify-tag --draft --title "HOCDB $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          fi

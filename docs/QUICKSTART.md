@@ -11,8 +11,8 @@ Download the archive for your machine from
 
 | Machine | Archive |
 | --- | --- |
-| Linux x86_64 | hocdb-0.1.1-linux-x86_64.tar.gz |
-| macOS Apple Silicon | hocdb-0.1.1-macos-aarch64.tar.gz |
+| Linux x86_64 (static musl binary) | hocdb-0.1.1-linux-x86_64.tar.gz |
+| macOS 13+ on Apple Silicon | hocdb-0.1.1-macos-aarch64.tar.gz |
 
 Download SHA256SUMS from the same release. From the download directory, verify
 your archive with shasum -a 256 (macOS) or sha256sum (Linux), comparing the

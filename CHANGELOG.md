@@ -10,7 +10,7 @@ First tagged public release, using the version already recorded by the library.
   batches, bounded queries, read-only analysis and actionable JSON errors.
 - Lossless large integer output and null for undefined indicator warm-up.
 - No automatic deletion or circular overwrite in the CLI.
-- Linux x86_64 and macOS Apple Silicon CLI archives with SHA256 checksums.
+- Static Linux x86_64 and macOS 13+ Apple Silicon CLI archives with SHA256 checksums.
 - Quickstart, agent guide, machine-readable command contract and release workflow.
 
 The release also includes the existing embedded HOC2 storage engine, Zig

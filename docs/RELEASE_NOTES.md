@@ -1,8 +1,8 @@
 HOCDB's first tagged release makes its embedded time-series engine available
 through a native, non-interactive JSON command line.
 
-Download the archive for Linux x86_64 or macOS Apple Silicon and verify it
-against SHA256SUMS. Extract it and run bin/hocdb --help; no compiler or language
+Download the static Linux x86_64 archive or the macOS 13+ Apple Silicon
+archive and verify it against SHA256SUMS. Extract it and run bin/hocdb --help; no compiler or language
 runtime is needed for the CLI.
 
 ~~~bash
