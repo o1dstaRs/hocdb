@@ -4,6 +4,19 @@
 
 # HOCDB
 
+<p align="center">
+  <a href="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml?query=branch%3Amain">
+    <img src="https://github.com/o1dstaRs/hocdb/actions/workflows/test.yml/badge.svg?branch=main" alt="Tests (main)">
+  </a>
+  <a href="https://ziglang.org/download/">
+    <img src="https://img.shields.io/badge/Zig-0.17.1-orange.svg?logo=zig&logoColor=white" alt="Zig Version">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey" alt="Platform">
+</p>
+
 An embedded time-series database in Zig, with a native JSON command line for
 people and agents. Store timestamped records, query ranges, and compute
 statistics and market indicators locally.
